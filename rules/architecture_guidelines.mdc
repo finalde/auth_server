@@ -8,17 +8,22 @@ alwaysApply: true
 
 ## Architecture Reference
 
-ALWAYS follow the guidelines in [ARCHITECTURE.md](mdc:ARCHITECTURE.md) when generating new code.
+**MANDATORY: ALWAYS read and follow [ARCHITECTURE.md](mdc:ARCHITECTURE.md) when generating ANY code.**
 
-[ARCHITECTURE.md](mdc:ARCHITECTURE.md) contains detailed rules for:
-- Domain-Driven Design (DDD)
-- CQRS (Command Query Responsibility Segregation)
-- Dependency Injection (DI) / IoC Container
+[ARCHITECTURE.md](mdc:ARCHITECTURE.md) is the single source of truth for:
+- Domain-Driven Design (DDD) principles
+- CQRS (Command Query Responsibility Segregation) patterns
+- Dependency Injection (DI) / IoC Container patterns
 - File naming conventions
-- Layer boundaries
+- Layer boundaries and dependency rules
 - Entity, Value Object, DAO, DTO definitions
+- Project structure and organization
 
-**Read [ARCHITECTURE.md](mdc:ARCHITECTURE.md) before making architectural decisions.**
+**Before making ANY architectural decisions or writing code:**
+1. ✅ Read [ARCHITECTURE.md](mdc:ARCHITECTURE.md)
+2. ✅ Verify your code follows the documented patterns
+3. ✅ Ensure layer dependencies are respected
+4. ✅ Use the correct naming conventions
 
 ## Key Principles
 
