@@ -31,8 +31,13 @@ class OIDCServerService:
                 {"type": "EC", "crv": "P-256", "use": ["sig"]},
             ]
             
+            # Build base URL for endpoints (remove trailing slash, normalize 0.0.0.0 to localhost)
+            base_url: str = self._issuer.rstrip("/")
+            if "0.0.0.0" in base_url:
+                base_url = base_url.replace("0.0.0.0", "localhost")
+            
             config_with_defaults: Dict[str, Any] = {
-                "issuer": self._issuer,
+                "issuer": base_url,
                 "httpc_params": {"verify": False},
                 "keys": {
                     "key_defs": key_defs,
@@ -66,6 +71,16 @@ class OIDCServerService:
                     "password": os.urandom(16).hex(),
                     "salt": os.urandom(8).hex(),
                 },
+                # OIDC Discovery configuration
+                "response_types_supported": ["code"],
+                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "subject_types_supported": ["public"],
+                "scopes_supported": ["openid"],
+                "id_token_signing_alg_values_supported": ["RS256"],
+                "token_endpoint_auth_methods_supported": [
+                    "client_secret_basic",
+                    "client_secret_post",
+                ],
                 **config,
             }
             self._config = OPConfiguration(

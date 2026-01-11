@@ -1,6 +1,6 @@
 """Auth controller for OAuth2/OpenID Connect endpoints using IdPyOIDC."""
 
-from typing import Any
+from typing import Any, Dict
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
@@ -8,6 +8,9 @@ from fastapi.responses import JSONResponse, Response
 from apps.webapi.routes import AUTH_BASE
 
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
+
+# Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
+well_known_router: APIRouter = APIRouter(tags=["well-known"])
 
 
 def _get_oidc_server(request: Request) -> Any:
@@ -17,28 +20,109 @@ def _get_oidc_server(request: Request) -> Any:
     return request.state.oidc_server
 
 
-@router.get("/.well-known/openid-configuration")
+def _get_base_url(request: Request) -> str:
+    """Get base URL from request, normalizing 0.0.0.0 to localhost."""
+    base_url: str = str(request.base_url).rstrip("/")
+    # Normalize 0.0.0.0 to localhost for issuer consistency
+    if "0.0.0.0" in base_url:
+        base_url = base_url.replace("0.0.0.0", "localhost")
+    return base_url
+
+
+@well_known_router.get("/.well-known/openid-configuration")
 async def openid_configuration(request: Request) -> JSONResponse:
     """OpenID Connect discovery endpoint - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint_context = server.server_get("endpoint_context")
-        config: dict = endpoint_context.provider_info
-        return JSONResponse(content=config)
+        # IdPyOIDC Server has context attribute directly
+        endpoint_context = server.context
+        
+        # Get base URL from request (must match discovery endpoint origin)
+        base_url: str = _get_base_url(request)
+        
+        # Get provider info from endpoint context
+        provider_info: Dict[str, Any] = endpoint_context.provider_info.copy()
+        
+        # Fix: Set issuer to match the discovery endpoint base URL (MUST rule)
+        provider_info["issuer"] = base_url
+        
+        # Remove inline jwks if present (should not be in discovery doc)
+        if "jwks" in provider_info:
+            del provider_info["jwks"]
+        
+        # Add required jwks_uri pointing to the JWKS endpoint
+        provider_info["jwks_uri"] = f"{base_url}/api/v1/auth/jwks"
+        
+        # Ensure ALL endpoints use the same base URL as issuer (MUST rule)
+        provider_info["authorization_endpoint"] = f"{base_url}/api/v1/auth/authorization"
+        provider_info["token_endpoint"] = f"{base_url}/api/v1/auth/token"
+        provider_info["userinfo_endpoint"] = f"{base_url}/api/v1/auth/userinfo"
+        
+        # Fix: Ensure registration_endpoint uses same base URL, or remove if not needed
+        if "registration_endpoint" in provider_info:
+            provider_info["registration_endpoint"] = f"{base_url}/api/v1/auth/registration"
+        # Alternative: Remove registration_endpoint if DCR is not supported
+        # else:
+        #     if "registration_endpoint" in provider_info:
+        #         del provider_info["registration_endpoint"]
+        
+        return JSONResponse(content=provider_info)
+    except AttributeError as e:
+        # Handle case where provider_info might not be available yet
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Provider info not available: {str(e)}"}
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500, content={"error": f"Configuration error: {str(e)}"}
         )
 
 
-@router.get("/.well-known/oauth-authorization-server")
+@well_known_router.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server(request: Request) -> JSONResponse:
     """OAuth2 Authorization Server Metadata endpoint - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint_context = server.server_get("endpoint_context")
-        config: dict = endpoint_context.provider_info
-        return JSONResponse(content=config)
+        # IdPyOIDC Server has context attribute directly
+        endpoint_context = server.context
+        
+        # Get base URL from request (must match discovery endpoint origin)
+        base_url: str = _get_base_url(request)
+        
+        # Get provider info from endpoint context
+        provider_info: Dict[str, Any] = endpoint_context.provider_info.copy()
+        
+        # Fix: Set issuer to match the discovery endpoint base URL
+        provider_info["issuer"] = base_url
+        
+        # Remove inline jwks if present
+        if "jwks" in provider_info:
+            del provider_info["jwks"]
+        
+        # Add required jwks_uri
+        provider_info["jwks_uri"] = f"{base_url}/api/v1/auth/jwks"
+        
+        # Ensure ALL endpoints use the same base URL as issuer
+        provider_info["authorization_endpoint"] = f"{base_url}/api/v1/auth/authorization"
+        provider_info["token_endpoint"] = f"{base_url}/api/v1/auth/token"
+        if "userinfo_endpoint" in provider_info:
+            provider_info["userinfo_endpoint"] = f"{base_url}/api/v1/auth/userinfo"
+        
+        # Fix: Ensure registration_endpoint uses same base URL, or remove if not needed
+        if "registration_endpoint" in provider_info:
+            provider_info["registration_endpoint"] = f"{base_url}/api/v1/auth/registration"
+        # Alternative: Remove registration_endpoint if DCR is not supported
+        # else:
+        #     if "registration_endpoint" in provider_info:
+        #         del provider_info["registration_endpoint"]
+        
+        return JSONResponse(content=provider_info)
+    except AttributeError as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Provider info not available: {str(e)}"}
+        )
     except Exception as e:
         return JSONResponse(
             status_code=500, content={"error": f"Configuration error: {str(e)}"}
@@ -50,7 +134,8 @@ async def authorization_endpoint(request: Request) -> Response:
     """Authorization endpoint for OAuth2 authorization code flow - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint = server.server_get("endpoint", "authorization")
+        # IdPyOIDC Server has endpoints as a dictionary attribute
+        endpoint = server.endpoint["authorization"]
         
         # Prepare request data for IdPyOIDC
         body = await request.body() if request.method == "POST" else b""
@@ -84,7 +169,8 @@ async def token_endpoint(request: Request) -> JSONResponse:
     """Token endpoint for OAuth2 token exchange - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint = server.server_get("endpoint", "token")
+        # IdPyOIDC Server has endpoints as a dictionary attribute
+        endpoint = server.endpoint["token"]
         
         body = await request.body()
         form_data = await request.form()
@@ -116,7 +202,8 @@ async def userinfo_endpoint(request: Request) -> JSONResponse:
     """UserInfo endpoint for OpenID Connect user information - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint = server.server_get("endpoint", "userinfo")
+        # IdPyOIDC Server has endpoints as a dictionary attribute
+        endpoint = server.endpoint["userinfo"]
         
         body = await request.body() if request.method == "POST" else b""
         
@@ -142,7 +229,8 @@ async def jwks_endpoint(request: Request) -> JSONResponse:
     """JSON Web Key Set endpoint - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint_context = server.server_get("endpoint_context")
+        # IdPyOIDC Server has context attribute directly
+        endpoint_context = server.context
         jwks = endpoint_context.keyjar.export_jwks()
         return JSONResponse(content=jwks)
     except Exception as e:
@@ -156,7 +244,8 @@ async def registration_endpoint(request: Request) -> JSONResponse:
     """Dynamic client registration endpoint - handled by IdPyOIDC."""
     try:
         server: Any = _get_oidc_server(request)
-        endpoint = server.server_get("endpoint", "registration")
+        # IdPyOIDC Server has endpoints as a dictionary attribute
+        endpoint = server.endpoint["registration"]
         
         body = await request.body()
         

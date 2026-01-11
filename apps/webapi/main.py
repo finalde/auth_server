@@ -19,6 +19,9 @@ app: FastAPI = FastAPI(
 
 # Include routers
 app.include_router(router)
+# Well-known endpoints must be at root level per OAuth2/OIDC specification
+app.include_router(auth__controller.well_known_router)
+# Auth endpoints under /api/v1/auth
 app.include_router(auth__controller.router)
 
 
@@ -30,7 +33,12 @@ class OIDCMiddleware(BaseHTTPMiddleware):
         # Get or initialize OIDC server service
         if not hasattr(request.app.state, "oidc_server_service"):
             config = get_config()
-            base_url: str = f"http://{config.get_server_host()}:{config.get_server_port()}"
+            host: str = config.get_server_host()
+            port: int = config.get_server_port()
+            # Use localhost instead of 0.0.0.0 for issuer URL
+            if host == "0.0.0.0":
+                host = "localhost"
+            base_url: str = f"http://{host}:{port}"
             oidc_service = OIDCServerService(issuer=base_url)
             oidc_service.configure({})
             request.app.state.oidc_server_service = oidc_service
@@ -45,7 +53,12 @@ class OIDCMiddleware(BaseHTTPMiddleware):
 async def startup_event() -> None:
     """Initialize OIDC server on startup."""
     config = get_config()
-    base_url: str = f"http://{config.get_server_host()}:{config.get_server_port()}"
+    host: str = config.get_server_host()
+    port: int = config.get_server_port()
+    # Use localhost instead of 0.0.0.0 for issuer URL
+    if host == "0.0.0.0":
+        host = "localhost"
+    base_url: str = f"http://{host}:{port}"
     oidc_service = OIDCServerService(issuer=base_url)
     oidc_service.configure({})
     app.state.oidc_server_service = oidc_service
