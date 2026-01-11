@@ -41,6 +41,10 @@ ENV/
 .env
 .env.local
 
+# Configuration files (keep example files)
+apps/webapi/config.yml
+!apps/webapi/config.yml.example
+
 # Database
 *.db
 *.sqlite

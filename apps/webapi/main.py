@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 
+from apps.webapi.controllers import auth__controller
 from apps.webapi.routes import HEALTH, router
 
 app: FastAPI = FastAPI(
@@ -10,7 +11,9 @@ app: FastAPI = FastAPI(
     version="1.0.0",
 )
 
+# Include routers
 app.include_router(router)
+app.include_router(auth__controller.router)
 
 
 @app.get(HEALTH)

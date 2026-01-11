@@ -1,0 +1,177 @@
+---
+description: Value object patterns and anti-patterns
+globs: **/*.py
+alwaysApply: true
+---
+
+# Value Object Patterns
+
+## Core Principle
+
+**Value objects must encapsulate meaningful, composite domain concepts, NOT single primitive fields.**
+
+## ❌ Anti-Pattern: Single-Field Value Objects
+
+**DO NOT create value objects that wrap single primitive fields**, even if they include validation logic.
+
+### Bad Examples
+
+```python
+# ❌ Bad: Single field wrapper
+@dataclass(frozen=True)
+class ClientId:
+    value: str  # Just wraps a string
+    
+    def __post_init__(self):
+        # Validation logic doesn't justify a value object
+        if not self.value:
+            raise ValueError("Client ID cannot be empty")
+
+# ❌ Bad: Single field with validation
+@dataclass(frozen=True)
+class Email:
+    value: str  # Just wraps a string
+    
+    def __post_init__(self):
+        # Validation doesn't justify a value object
+        if not re.match(email_pattern, self.value):
+            raise ValueError("Invalid email")
+```
+
+**Why these are bad:**
+- Adds unnecessary indirection (`entity.client_id.value` vs `entity.client_id`)
+- No meaningful domain concept - just a wrapper
+- Validation should happen at entity/application layer instead
+- Makes code more verbose without adding value
+
+### Correct Approach
+
+```python
+# ✅ Good: Use primitive directly in entity
+@dataclass
+class OAuth2Client:
+    client_id: str  # Direct primitive
+    email: str  # Direct primitive
+    # Validation happens in entity methods or application layer
+```
+
+## ✅ Pattern: Composite Value Objects
+
+**DO create value objects for meaningful, composite domain concepts.**
+
+### Good Examples
+
+```python
+# ✅ Good: Composite concept (Money)
+@dataclass(frozen=True)
+class Money:
+    amount: Decimal
+    currency: str  # Multiple fields form one concept
+    
+    def __post_init__(self):
+        if self.amount < 0:
+            raise ValueError("Amount cannot be negative")
+        if not self.currency or len(self.currency) != 3:
+            raise ValueError("Invalid currency code")
+    
+    def add(self, other: 'Money') -> 'Money':
+        if self.currency != other.currency:
+            raise ValueError("Cannot add different currencies")
+        return Money(self.amount + other.amount, self.currency)
+
+# ✅ Good: Composite concept (Address)
+@dataclass(frozen=True)
+class Address:
+    street: str
+    city: str
+    postal_code: str
+    country: str  # Multiple fields form one concept
+    
+    def is_valid(self) -> bool:
+        # Validation logic for the composite concept
+        return bool(self.street and self.city and self.postal_code)
+    
+    def format_full(self) -> str:
+        # Behavior related to the concept
+        return f"{self.street}, {self.city}, {self.postal_code}, {self.country}"
+
+# ✅ Good: Composite concept with behavior (TimeRange)
+@dataclass(frozen=True)
+class TimeRange:
+    start: datetime
+    end: datetime  # Two fields form one concept
+    
+    def __post_init__(self):
+        if self.start >= self.end:
+            raise ValueError("Start must be before end")
+    
+    def contains(self, time: datetime) -> bool:
+        # Behavior specific to the concept
+        return self.start <= time <= self.end
+    
+    def duration(self) -> timedelta:
+        # Behavior specific to the concept
+        return self.end - self.start
+```
+
+**Why these are good:**
+- Represent meaningful domain concepts
+- Combine multiple related values
+- Encapsulate behavior related to the concept
+- Make the domain model more expressive
+
+## Validation Guidelines
+
+### Where to Validate Single Fields
+
+- **Entity level**: Validate in entity methods or constructors
+- **Application layer**: Validate in DTOs (Pydantic) or command handlers
+- **Value objects**: Only for composite concepts that need coordinated validation
+
+### Example: Proper Validation
+
+```python
+# ✅ Good: Validation in entity
+@dataclass
+class OAuth2Client:
+    client_id: str
+    
+    def __post_init__(self):
+        if not self.client_id or len(self.client_id) < 3:
+            raise ValueError("Invalid client ID")
+
+# ✅ Good: Validation in DTO
+class CreateClientDTO(BaseModel):
+    client_id: str = Field(..., min_length=3, max_length=255)
+    email: EmailStr  # Pydantic handles validation
+
+# ✅ Good: Validation in command handler
+async def handle_async(self, command: CreateClientCommand):
+    if not is_valid_email(command.email):
+        raise ValidationError("Invalid email")
+```
+
+## Decision Criteria
+
+Ask yourself before creating a value object:
+
+1. **Does it represent a meaningful domain concept?** 
+   - Single field = No
+   - Composite fields = Maybe
+
+2. **Does it combine multiple related values?**
+   - Single value = No
+   - Multiple values = Yes
+
+3. **Does it have behavior specific to the concept?**
+   - Just validation = No (use entity/DTO validation)
+   - Domain operations = Yes
+
+4. **Would the code be clearer with a value object?**
+   - If it just adds indirection = No
+   - If it makes the domain model more expressive = Yes
+
+## References
+
+- See [ARCHITECTURE.md](mdc:ARCHITECTURE.md) for architecture guidelines
+- Domain-Driven Design principles: Value objects should represent concepts, not wrappers

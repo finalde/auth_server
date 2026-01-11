@@ -37,11 +37,33 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Run the application:
+3. Set up configuration:
 ```bash
-cd apps/webapi
-uvicorn main:app --reload
+cp apps/webapi/config.yml.example apps/webapi/config.yml
+# Edit apps/webapi/config.yml with your database settings
 ```
+
+4. Run the application:
+
+**Option 1: Using uvicorn from project root (Recommended)**
+```bash
+# From project root
+uvicorn apps.webapi.main:app --reload
+```
+
+**Option 2: Using Python module**
+```bash
+# From project root
+python -m apps.webapi
+```
+
+**Option 3: Using uvicorn from apps/webapi directory**
+```bash
+# From project root (PYTHONPATH needs to include project root)
+PYTHONPATH=. cd apps/webapi && uvicorn main:app --reload
+```
+
+The app will be available at `http://localhost:8000` (or the port specified in config.yml).
 
 ### WebUI (React)
 

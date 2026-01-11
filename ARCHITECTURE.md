@@ -160,6 +160,37 @@ Each major domain concept has its own files across layers:
 - Domain-specific errors defined in domain layer
 - Application layer handles domain errors and converts to appropriate responses
 
+## Value Objects
+
+**IMPORTANT**: Value objects must encapsulate meaningful, composite values, not single fields.
+
+### ❌ DO NOT Create Single-Field Value Objects
+
+Value objects should NOT be created to wrap single primitive fields, even if they include validation logic.
+
+**Bad Examples:**
+- `ClientId(value: str)` - Just wraps a string
+- `Email(value: str)` - Just wraps a string (even with validation)
+- `RedirectUri(value: str)` - Just wraps a string (even with validation)
+
+**Why**: Single-field value objects add unnecessary indirection without providing meaningful domain concepts.
+
+### ✅ DO Create Value Objects for Composite Concepts
+
+Value objects should represent meaningful domain concepts that combine multiple related values or have significant behavior.
+
+**Good Examples:**
+- `Money(amount: Decimal, currency: str)` - Represents a monetary value
+- `Address(street: str, city: str, postal_code: str, country: str)` - Represents a complete address
+- `TimeRange(start: datetime, end: datetime)` - Represents a time period with validation logic
+- `Credentials(username: str, password_hash: str)` - Represents authentication credentials
+
+### Validation Rules
+
+- **Single-field validation**: Use validation at the entity or application layer (DTOs, commands)
+- **Composite concepts**: Use value objects when multiple fields form a cohesive domain concept
+- **Behavior**: Value objects should encapsulate behavior related to the concept, not just data
+
 ## When Adding New Features
 
 1. **Domain Logic**: Add to `libs/domain/` (entities, value objects, domain services)

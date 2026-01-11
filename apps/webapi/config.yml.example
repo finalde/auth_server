@@ -1,0 +1,17 @@
+# Application configuration example
+# Copy this file to config.yml and update with your actual values
+
+database:
+  host: "localhost"
+  port: 5432
+  database: "auth_server"
+  user: "postgres"
+  password: "sa"
+
+application:
+  debug: false
+  log_level: "INFO"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
