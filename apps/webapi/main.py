@@ -1,4 +1,10 @@
-"""FastAPI application entry point."""
+"""FastAPI application entry point.
+
+This module sets up the FastAPI application and integrates IdPyOIDC server.
+For IdPyOIDC integration details, see:
+- IdPyOIDC docs: https://idpy-oidc.readthedocs.io/en/latest/server/contents/index.html
+- FastAPI integration: See apps/webapi/docs/IDPYOIDC_INTEGRATION.md
+"""
 
 from typing import Any
 
@@ -26,7 +32,12 @@ app.include_router(auth__controller.router)
 
 
 class OIDCMiddleware(BaseHTTPMiddleware):
-    """Middleware to inject OIDC server into request state."""
+    """Middleware to inject OIDC server into request state.
+
+    This middleware ensures the IdPyOIDC Server instance is available
+    in request.state for all endpoints. The server is initialized once
+    on startup and reused for all requests.
+    """
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Dispatch request with OIDC server in state."""
@@ -36,6 +47,7 @@ class OIDCMiddleware(BaseHTTPMiddleware):
             host: str = config.get_server_host()
             port: int = config.get_server_port()
             # Use localhost instead of 0.0.0.0 for issuer URL
+            # OIDC Discovery requires issuer to be a valid, reachable URL
             if host == "0.0.0.0":
                 host = "localhost"
             base_url: str = f"http://{host}:{port}"
@@ -51,7 +63,11 @@ class OIDCMiddleware(BaseHTTPMiddleware):
 # Initialize OIDC server on startup
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Initialize OIDC server on startup."""
+    """Initialize OIDC server on startup.
+
+    The IdPyOIDC Server is initialized once at startup and stored in app.state.
+    This follows IdPyOIDC patterns where the server is a long-lived singleton.
+    """
     config = get_config()
     host: str = config.get_server_host()
     port: int = config.get_server_port()

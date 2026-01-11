@@ -1,4 +1,14 @@
-"""Auth controller for OAuth2/OpenID Connect endpoints using IdPyOIDC."""
+"""Auth controller for OAuth2/OpenID Connect endpoints using IdPyOIDC.
+
+This module implements OAuth2/OIDC endpoints using IdPyOIDC library.
+The implementation adapts IdPyOIDC for FastAPI/Starlette, as IdPyOIDC
+documentation primarily shows Flask examples.
+
+IdPyOIDC Documentation:
+- Server setup: https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
+- Configuration: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html
+- Session management: https://idpy-oidc.readthedocs.io/en/latest/server/contents/session_management.html
+"""
 
 from typing import Any, Dict
 
@@ -10,18 +20,26 @@ from apps.webapi.routes import AUTH_BASE
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
 
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
+# OIDC Discovery spec: https://openid.net/specs/openid-connect-discovery-1_0.html
 well_known_router: APIRouter = APIRouter(tags=["well-known"])
 
 
 def _get_oidc_server(request: Request) -> Any:
-    """Get OIDC server from request state."""
+    """Get OIDC server from request state.
+
+    The server is injected via middleware (see main.py OIDCMiddleware).
+    IdPyOIDC Server structure: https://idpy-oidc.readthedocs.io/en/latest/server/contents/intro.html
+    """
     if not hasattr(request.state, "oidc_server"):
         raise RuntimeError("OIDC server not initialized")
     return request.state.oidc_server
 
 
 def _get_base_url(request: Request) -> str:
-    """Get base URL from request, normalizing 0.0.0.0 to localhost."""
+    """Get base URL from request, normalizing 0.0.0.0 to localhost.
+
+    The issuer URL must match the discovery endpoint origin per OIDC Discovery spec.
+    """
     base_url: str = str(request.base_url).rstrip("/")
     # Normalize 0.0.0.0 to localhost for issuer consistency
     if "0.0.0.0" in base_url:
@@ -31,22 +49,33 @@ def _get_base_url(request: Request) -> str:
 
 @well_known_router.get("/.well-known/openid-configuration")
 async def openid_configuration(request: Request) -> JSONResponse:
-    """OpenID Connect discovery endpoint - handled by IdPyOIDC."""
+    """OpenID Connect discovery endpoint - handled by IdPyOIDC.
+
+    Returns the OpenID Provider Configuration Document.
+    OIDC Discovery spec: https://openid.net/specs/openid-connect-discovery-1_0.html
+
+    The provider_info is retrieved from IdPyOIDC's endpoint context and then
+    customized to ensure all endpoints use the same base URL as the issuer.
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has context attribute directly
+        # Context provides access to provider_info and other server state
         endpoint_context = server.context
         
         # Get base URL from request (must match discovery endpoint origin)
         base_url: str = _get_base_url(request)
         
         # Get provider info from endpoint context
+        # Provider info contains OIDC Discovery metadata
+        # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#capabilities
         provider_info: Dict[str, Any] = endpoint_context.provider_info.copy()
         
         # Fix: Set issuer to match the discovery endpoint base URL (MUST rule)
         provider_info["issuer"] = base_url
         
         # Remove inline jwks if present (should not be in discovery doc)
+        # OIDC Discovery requires jwks_uri, not inline jwks
         if "jwks" in provider_info:
             del provider_info["jwks"]
         
@@ -81,7 +110,11 @@ async def openid_configuration(request: Request) -> JSONResponse:
 
 @well_known_router.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server(request: Request) -> JSONResponse:
-    """OAuth2 Authorization Server Metadata endpoint - handled by IdPyOIDC."""
+    """OAuth2 Authorization Server Metadata endpoint - handled by IdPyOIDC.
+
+    Returns OAuth2 Authorization Server Metadata (RFC 8414).
+    This endpoint typically returns similar information to the OIDC discovery endpoint.
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has context attribute directly
@@ -131,13 +164,25 @@ async def oauth_authorization_server(request: Request) -> JSONResponse:
 
 @router.get("/authorization")
 async def authorization_endpoint(request: Request) -> Response:
-    """Authorization endpoint for OAuth2 authorization code flow - handled by IdPyOIDC."""
+    """Authorization endpoint for OAuth2 authorization code flow - handled by IdPyOIDC.
+
+    OAuth2 Authorization Endpoint (RFC 6749 Section 4.1.1).
+    IdPyOIDC endpoint: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#authorization
+
+    Note: FastAPI/Starlette integration adapts IdPyOIDC endpoints (which are designed
+    primarily for Flask/WSGI) to work with ASGI. The request data is converted from
+    Starlette Request to a format IdPyOIDC endpoints can process.
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute
+        # Access endpoint instances: https://idpy-oidc.readthedocs.io/en/latest/server/contents/intro.html
         endpoint = server.endpoint["authorization"]
         
         # Prepare request data for IdPyOIDC
+        # Convert Starlette Request to format IdPyOIDC expects
+        # Note: IdPyOIDC documentation shows Flask examples, but endpoints accept
+        # request data in various formats (dict, HTTPRequest, etc.)
         body = await request.body() if request.method == "POST" else b""
         
         # IdPyOIDC processes requests - adapt based on actual API
@@ -166,7 +211,11 @@ async def authorization_endpoint(request: Request) -> Response:
 
 @router.post("/token")
 async def token_endpoint(request: Request) -> JSONResponse:
-    """Token endpoint for OAuth2 token exchange - handled by IdPyOIDC."""
+    """Token endpoint for OAuth2 token exchange - handled by IdPyOIDC.
+
+    OAuth2 Token Endpoint (RFC 6749 Section 3.2).
+    IdPyOIDC endpoint: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#token
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute
@@ -199,7 +248,11 @@ async def token_endpoint(request: Request) -> JSONResponse:
 @router.get("/userinfo")
 @router.post("/userinfo")
 async def userinfo_endpoint(request: Request) -> JSONResponse:
-    """UserInfo endpoint for OpenID Connect user information - handled by IdPyOIDC."""
+    """UserInfo endpoint for OpenID Connect user information - handled by IdPyOIDC.
+
+    OIDC UserInfo Endpoint (OpenID Connect Core 1.0 Section 5.3).
+    IdPyOIDC endpoint: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#userinfo
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute
@@ -226,10 +279,17 @@ async def userinfo_endpoint(request: Request) -> JSONResponse:
 
 @router.get("/jwks")
 async def jwks_endpoint(request: Request) -> JSONResponse:
-    """JSON Web Key Set endpoint - handled by IdPyOIDC."""
+    """JSON Web Key Set endpoint - handled by IdPyOIDC.
+
+    Returns the JSON Web Key Set (JWKS) for token validation.
+    JWKS spec: https://tools.ietf.org/html/rfc7517
+
+    The keyjar is accessed from the server's endpoint context.
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has context attribute directly
+        # Keyjar contains signing keys: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#keys
         endpoint_context = server.context
         jwks = endpoint_context.keyjar.export_jwks()
         return JSONResponse(content=jwks)
@@ -241,7 +301,11 @@ async def jwks_endpoint(request: Request) -> JSONResponse:
 
 @router.post("/registration")
 async def registration_endpoint(request: Request) -> JSONResponse:
-    """Dynamic client registration endpoint - handled by IdPyOIDC."""
+    """Dynamic client registration endpoint - handled by IdPyOIDC.
+
+    OIDC Dynamic Client Registration (OpenID Connect Registration 1.0).
+    IdPyOIDC endpoint: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#registration
+    """
     try:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute

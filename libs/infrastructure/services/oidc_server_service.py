@@ -1,4 +1,11 @@
-"""IdPyOIDC server service."""
+"""IdPyOIDC server service.
+
+This module implements the IdPyOIDC server service following the official documentation:
+https://idpy-oidc.readthedocs.io/en/latest/server/contents/index.html
+
+Configuration structure follows:
+https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html
+"""
 
 import os
 from typing import Any, Dict, Optional
@@ -13,19 +20,43 @@ except ImportError:
 
 
 class OIDCServerService:
-    """IdPyOIDC server service."""
+    """IdPyOIDC server service.
+
+    Wraps the IdPyOIDC Server class and provides configuration management.
+    Follows IdPyOIDC documentation patterns:
+    https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
+    """
 
     def __init__(self, issuer: str, base_path: Optional[str] = None) -> None:
-        """Initialize OIDC server."""
+        """Initialize OIDC server.
+
+        Args:
+            issuer: The issuer URI for the OpenID Provider (OP).
+                Must be a unique URI as per OIDC Discovery specification.
+            base_path: Base path for configuration files (optional).
+        """
         self._issuer: str = issuer
         self._base_path: str = base_path or os.getcwd()
         self._server: Optional[Server] = None
         self._config: Optional[OPConfiguration] = None
 
     def configure(self, config: Dict[str, Any]) -> None:
-        """Configure OIDC server with custom configuration."""
+        """Configure OIDC server with custom configuration.
+
+        Configuration structure follows IdPyOIDC documentation:
+        https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html
+
+        Args:
+            config: Additional configuration dictionary that will be merged
+                with default configuration. See IdPyOIDC docs for available options.
+
+        Raises:
+            RuntimeError: If configuration fails or IdPyOIDC is not installed.
+        """
         try:
             # Create key definitions - shared for keys and token handler
+            # Key definitions follow IdPyOIDC patterns:
+            # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#keys
             key_defs: list = [
                 {"type": "RSA", "use": ["sig"]},
                 {"type": "EC", "crv": "P-256", "use": ["sig"]},
@@ -36,15 +67,23 @@ class OIDCServerService:
             if "0.0.0.0" in base_url:
                 base_url = base_url.replace("0.0.0.0", "localhost")
             
+            # Configuration structure follows IdPyOIDC documentation:
+            # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html
             config_with_defaults: Dict[str, Any] = {
                 "issuer": base_url,
                 "httpc_params": {"verify": False},
+                # Keys configuration for signing and encryption
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#keys
                 "keys": {
                     "key_defs": key_defs,
                 },
+                # Token handler arguments
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#token-handler-arguments
                 "token_handler_args": {
                     "key_defs": key_defs,
                 },
+                # Endpoint configuration
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#endpoint
                 "endpoint": {
                     "authorization": {
                         "path": "authorization",
@@ -67,11 +106,14 @@ class OIDCServerService:
                         "kwargs": {},
                     },
                 },
+                # Session parameters for session management
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#session-parameters
                 "session_params": {
                     "password": os.urandom(16).hex(),
                     "salt": os.urandom(8).hex(),
                 },
-                # OIDC Discovery configuration
+                # OIDC Discovery configuration (capabilities)
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#capabilities
                 "response_types_supported": ["code"],
                 "grant_types_supported": ["authorization_code", "refresh_token"],
                 "subject_types_supported": ["public"],
@@ -83,10 +125,14 @@ class OIDCServerService:
                 ],
                 **config,
             }
+            # Create OPConfiguration following IdPyOIDC setup:
+            # https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
             self._config = OPConfiguration(
                 conf=config_with_defaults, base_path=self._base_path
             )
-            # Server takes configuration object as positional argument
+            # Initialize Server with configuration
+            # Server initialization follows IdPyOIDC patterns:
+            # https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
             self._server = Server(self._config)
         except ImportError:
             # IdPyOIDC not installed - server will be None
@@ -96,7 +142,14 @@ class OIDCServerService:
             raise RuntimeError(f"Failed to configure OIDC server: {e}") from e
 
     def get_server(self) -> Server:
-        """Get configured OIDC server."""
+        """Get configured OIDC server.
+
+        Returns:
+            The configured IdPyOIDC Server instance.
+
+        Raises:
+            RuntimeError: If server is not configured or IdPyOIDC is not installed.
+        """
         if self._server is None:
             raise RuntimeError(
                 "OIDC server not configured. Call configure() first or install idpyoidc."
@@ -104,7 +157,14 @@ class OIDCServerService:
         return self._server
 
     def get_configuration(self) -> Dict[str, Any]:
-        """Get server configuration."""
+        """Get server configuration.
+
+        Returns:
+            The configuration dictionary.
+
+        Raises:
+            RuntimeError: If server is not configured.
+        """
         if self._config is None:
             raise RuntimeError("OIDC server not configured. Call configure() first.")
         return self._config.conf
