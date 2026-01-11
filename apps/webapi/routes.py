@@ -8,10 +8,8 @@ from fastapi import APIRouter
 API_BASE: Final[str] = "/api/v1"
 HEALTH: Final[str] = "/health"
 
-# Auth routes (example)
+# Auth routes (OAuth2/OpenID Connect - handled by IdPyOIDC)
 AUTH_BASE: Final[str] = f"{API_BASE}/auth"
-AUTH_LOGIN: Final[str] = f"{AUTH_BASE}/login"
-AUTH_LOGOUT: Final[str] = f"{AUTH_BASE}/logout"
 
 # Management routes
 CLIENTS_BASE: Final[str] = f"{API_BASE}/clients"
