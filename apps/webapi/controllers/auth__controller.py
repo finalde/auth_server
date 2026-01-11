@@ -17,9 +17,11 @@ from fastapi.responses import JSONResponse, Response, HTMLResponse, RedirectResp
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
+
 from apps.webapi.routes import AUTH_BASE
-from idpyoidc.endpoint.authorization import Authorization
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
+
+
 
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
 # OIDC Discovery spec: https://openid.net/specs/openid-connect-discovery-1_0.html
@@ -52,6 +54,23 @@ def _get_base_url(request: Request) -> str:
     if "0.0.0.0" in base_url:
         base_url = base_url.replace("0.0.0.0", "localhost")
     return base_url
+
+
+def _build_http_info(request: Request) -> dict:
+    """Build http_info dict for IdPyOIDC parse_request.
+    
+    IdPyOIDC parse_request expects http_info with:
+    - headers: Request headers
+    - url: Request URL
+    - cookies: Request cookies (optional)
+    """
+    return {
+        "headers": dict(request.headers),
+        "url": str(request.url),
+        "cookies": dict(request.cookies) if hasattr(request, "cookies") else {},
+    }
+
+
 
 
 @well_known_router.get("/.well-known/openid-configuration")
@@ -290,8 +309,7 @@ async def authorization_endpoint(request: Request) -> Response:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute
         # Access endpoint instances: https://idpy-oidc.readthedocs.io/en/latest/server/contents/intro.html
-        endpoint:Authorization = server.endpoint["authorization"]  # pyright: ignore[reportUndefinedVariable]
-        
+        endpoint = server.endpoint["authorization"]  
         # Check if user is authenticated
         # TODO: Check session for authenticated user
         user = request.query_params.get("user")  # Temporary - use session in production
@@ -308,24 +326,19 @@ async def authorization_endpoint(request: Request) -> Response:
             )
         
         # Prepare request data for IdPyOIDC
-        # Convert Starlette Request to format IdPyOIDC expects
-        # Note: IdPyOIDC documentation shows Flask examples, but endpoints accept
-        # request data in various formats (dict, HTTPRequest, etc.)
-        body = await request.body() if request.method == "POST" else b""
+        # Prepare request data for IdPyOIDC
+        # Authorization endpoint uses GET with query parameters
+        # IdPyOIDC parse_request expects:
+        # - request: dict (query params) or str (body)
+        # - http_info: dict with headers, url, cookies
+        request_data = dict(request.query_params)
+        http_info = _build_http_info(request)
         
-        # IdPyOIDC processes requests - adapt based on actual API
-        # Note: Actual implementation may need adjustment based on IdPyOIDC version
-        response = endpoint.parse_request(
-            request_info={
-                "method": request.method,
-                "url": str(request.url),
-                "headers": dict(request.headers),
-                "body": body.decode("utf-8") if body else "",
-            }
-        )
+        # Parse request using IdPyOIDC endpoint
+        parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         
         # Process and return response
-        resp = endpoint.process_request(response)
+        resp = endpoint.process_request(parsed_request)
         
         if isinstance(resp, dict):
             return JSONResponse(content=resp)
@@ -353,17 +366,13 @@ async def token_endpoint(request: Request) -> JSONResponse:
         form_data = await request.form()
         
         # Prepare request data for IdPyOIDC token endpoint
-        request_info = {
-            "method": request.method,
-            "url": str(request.url),
-            "headers": dict(request.headers),
-            "body": body.decode("utf-8") if body else "",
-        }
-        if form_data:
-            request_info["form"] = dict(form_data)
+        # Token endpoint uses POST with form data
+        # IdPyOIDC parse_request expects form data as dict
+        request_data = dict(form_data) if form_data else {}
+        http_info = _build_http_info(request)
         
         # Parse and process token request
-        parsed_request = endpoint.parse_request(request_info)
+        parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         response = endpoint.process_request(parsed_request)
         
         return JSONResponse(content=response)
@@ -388,14 +397,17 @@ async def userinfo_endpoint(request: Request) -> JSONResponse:
         
         body = await request.body() if request.method == "POST" else b""
         
-        request_info = {
-            "method": request.method,
-            "url": str(request.url),
-            "headers": dict(request.headers),
-            "body": body.decode("utf-8") if body else "",
-        }
+        # Prepare request data for IdPyOIDC
+        # UserInfo endpoint can use GET (query) or POST (body)
+        if request.method == "GET":
+            request_data = dict(request.query_params)
+        else:
+            # POST - use body as string
+            request_data = body.decode("utf-8") if body else ""
         
-        parsed_request = endpoint.parse_request(request_info)
+        http_info = _build_http_info(request)
+        
+        parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         response = endpoint.process_request(parsed_request)
         
         return JSONResponse(content=response)
@@ -441,14 +453,13 @@ async def registration_endpoint(request: Request) -> JSONResponse:
         
         body = await request.body()
         
-        request_info = {
-            "method": request.method,
-            "url": str(request.url),
-            "headers": dict(request.headers),
-            "body": body.decode("utf-8") if body else "",
-        }
+        # Prepare request data for IdPyOIDC
+        # Registration endpoint uses POST with JSON body
+        # IdPyOIDC parse_request expects body as string or dict
+        request_data = body.decode("utf-8") if body else ""
+        http_info = _build_http_info(request)
         
-        parsed_request = endpoint.parse_request(request_info)
+        parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         response = endpoint.process_request(parsed_request)
         
         return JSONResponse(content=response)
