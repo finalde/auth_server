@@ -1,0 +1,74 @@
+---
+description: WebAPI controller patterns and conventions
+globs: **/*.py
+alwaysApply: true
+---
+
+# WebAPI Controller Patterns
+
+## File Naming
+
+- **Controller files**: Must use `__controller` suffix: `example__controller.py`
+- **Location**: All controllers in controllers directory
+- **Route constants**: All route paths defined as constants
+
+## Function Naming
+
+- **All async functions**: MUST have `_async` suffix
+- Example: `async def get_all_items_async(...)`
+
+## Route Constants
+
+- All route paths MUST be defined as constants
+- Use constants in router decorators: `@router.get(ROUTE_CONSTANT)`
+- Format: `EXAMPLE_BASE`, `EXAMPLE_LIST`, etc.
+
+Example:
+```python
+# routes.py
+EXAMPLE_LIST: Final[str] = "/"
+
+# controllers/example__controller.py
+@router.get(EXAMPLE_LIST)
+async def get_all_items_async(...):
+    ...
+```
+
+## DTO Flow (CRITICAL)
+
+**Controllers MUST ONLY work with DTOs, never DAOs or Domain objects:**
+
+1. **Query services return DTOs**: Query services return DTOs, not DAOs or Domain objects
+2. **Controllers receive DTOs**: Controllers get DTOs from query services
+3. **DTOs ARE response models**: DTOs are used directly as FastAPI response models (no conversion needed)
+4. **Data flow**: DAO → Domain (via mapper, optional) → DTO (via mapper) → Controller → Response
+
+Example:
+```python
+# ✅ Good: Query returns DTO, DTO is used directly as response
+@router.get("/", response_model=List[ExampleDTO])
+async def get_all_items_async(
+    query: IExampleQuery = Depends(get_example_query),
+) -> List[ExampleDTO]:
+    return await query.get_all_items_async()  # Returns DTOs, used directly
+
+# ❌ Bad: Query returns DAO
+async def get_all_items_async(
+    query: IExampleQuery = Depends(get_example_query),
+) -> List[ExampleDTO]:
+    daos = await query.get_all_items_async()  # Returns DAOs - WRONG!
+    return daos
+```
+
+## Dependency Injection Scopes
+
+- **Singleton**: Configuration, factories (shared across all requests)
+- **Request**: Database sessions, readers, queries (one per HTTP request)
+- **Transient**: Can be added as needed
+
+## Response Models
+
+- **DTOs ARE the response models**: Use DTOs directly as response models in FastAPI
+- DTOs should be Pydantic `BaseModel` classes (not dataclasses) when used in WebAPI controllers
+- No need to create separate response classes - the DTO serves as the response model
+- FastAPI will automatically serialize DTOs to JSON

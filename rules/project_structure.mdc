@@ -1,0 +1,131 @@
+---
+description: Project structure principles and architectural patterns
+globs: **/*
+alwaysApply: true
+---
+
+# Project Structure and Architecture Principles
+
+This document outlines the architectural principles and patterns used in this project.
+
+## Architecture Layers
+
+The project follows Domain-Driven Design (DDD) and Clean Architecture principles with clear layer separation.
+
+### Common Layer
+
+Shared utilities and interfaces used across all layers:
+- **`interfaces.py`** - Core interfaces
+- **`enums.py`** - All enum definitions
+- **`constants.py`** - Application-wide constants
+- **`logger.py`** - Structured logging setup
+- **`di_container.py`** - Dependency injection container (common implementation)
+- **`di_registry.py`** - DI registration utilities
+
+### Domain Layer
+
+Pure business logic with no infrastructure dependencies:
+
+#### Entities
+Domain entities representing core business concepts
+
+#### Value Objects
+Immutable value objects
+
+#### Domain Services
+Static services (no DI) for domain logic
+
+#### Domain Factories
+Factories for creating domain entities
+
+#### Domain Errors
+Domain-specific error types
+
+### Application Layer
+
+Orchestration layer that coordinates domain and infrastructure:
+
+#### Commands
+CQRS command pattern implementation:
+- **`command_dispatcher.py`** - Command routing and execution
+- **`command_objects/`** - Command DTOs
+- **`command_handlers/`** - Command handlers
+
+#### Queries
+CQRS query pattern for read operations
+
+#### Mappers
+Layer translation between domain and infrastructure, and between domain and upper layer like webapi routes
+
+#### DTOs
+Data Transfer Objects for API boundaries
+
+#### Services
+Application services
+
+### Infrastructure Layer
+
+Technical implementations and external system integrations:
+
+#### Data Access Objects
+SQLAlchemy ORM models and data access abstractions
+
+#### Database Readers
+Read operations from database
+
+#### Database Writers
+Write operations to database
+
+#### File Readers
+File system operations
+
+#### Services
+Infrastructure services
+
+#### Database
+Database session management
+
+## Important Naming Conventions
+
+### File Naming
+- All Python files use **double underscore** (`__`) to separate words: `example__entity.py`
+- This distinguishes from single underscore which is Python's private convention
+
+### Module Organization
+- Each major domain concept has its own files across layers:
+  - Entity: `example__entity.py`
+  - Value Object: `example__value_object.py`
+  - DAO: `example__db_dao.py`
+  - Mapper: `example__mapper.py`
+  - Command: `example__command.py`
+  - Handler: `example__command_handler.py`
+  - Controller: `example__controller.py`
+
+## Key Principles
+
+1. **Layer Dependencies**: Domain sits in the center, application layers understands what is domain layer and what is infrastructure layer, domain does not know what is application layer, domain does not know what is infrastructure, infrastructure does not know what is domain. In another words, domain is pure, infrastructure is pure, application layer is in charge of orchestration and makes everything glued together.
+2. **No Infrastructure in Domain**: Domain layer must not import from infrastructure
+3. **No Application in Domain**: Domain layer must not import from application
+4. **No Domain in Infrastructure**: Infrastructure layer must not import Domain
+5. **No Application in Infrastructure**: Infrastructure layer must not import Application
+6. **Application Boundaries**: Application boundaries (WebAPI, Batch, etc.) can ONLY import from application layer (DTOs, queries, commands), never from domain or infrastructure directly
+7. **Common is Self-Contained**: Common layer can only depend on itself
+8. **Interfaces in Common**: All interfaces defined in common layer
+9. **Either for Errors**: Domain operations return `Either[Success, DomainError]`
+10. **CQRS Pattern**: Commands modify, Queries read (separate paths)
+11. **DTO Flow**: DAO → Domain (via mapper) → DTO (via mapper) → Controller. Application boundaries only work with DTOs, never DAOs or Domain objects directly
+
+## When Adding New Features
+
+1. **Domain Logic**: Add to domain layer (entities, value objects, domain services)
+2. **Application Logic**: Add to application layer (commands, queries, mappers)
+3. **Infrastructure**: Add to infrastructure layer (DAOs, readers, writers)
+4. **Interfaces**: Define in common layer interfaces
+5. **Enums**: Add to common layer enums
+6. **Controllers**: Use `_async` suffix for async functions
+7. **Route Constants**: Define route paths as constants
+
+## References
+
+- See [architecture_guidelines.mdc](mdc:.cursor/rules/architecture_guidelines.mdc) for architecture rules
+- See [python_coding_standards.mdc](mdc:.cursor/rules/python_coding_standards.mdc) for coding standards

@@ -1,0 +1,52 @@
+---
+description: Python coding standards and conventions
+globs: **/*.py
+alwaysApply: true
+---
+
+# Python Coding Standards
+
+This project follows strict, explicit, and readable Python coding standards.
+
+## General Principles
+
+- Prefer clarity over cleverness
+- Write code that is easy to read, review, and refactor
+- Avoid hidden or implicit behavior
+- Avoid magic strings or numbers - use enums, constants, or strong typed hints like `Class.__name__` to replace magic strings or numbers
+- Max line length: 120 characters (configured in pyproject.toml for black and isort)
+
+## Type Hints
+
+- All variables, parameters, and return values MUST have explicit type hints
+- Class attributes MUST be type-annotated
+- Avoid using `Any` unless absolutely necessary and explicitly justified
+- Prefer concrete types over generic ones
+
+## Naming Conventions
+
+- **Class names**: MUST be PascalCase
+- **Function and variable names**: MUST be snake_case
+- **Constants**: MUST be UPPER_SNAKE_CASE
+- **File names**: MUST be snake_case
+
+## Code Ingegrity
+- **Strong Type**: All variable, function, paramter must be strong typed explicitly
+
+## Examples
+
+```python
+# Good - explicit types, clear naming
+class ExampleEntity:
+    def __init__(self, entity_id: str, value: ExampleValueObject) -> None:
+        self.entity_id: str = entity_id
+        self.value: ExampleValueObject = value
+
+# Bad - missing types, magic strings
+class example:
+    def __init__(self, id, val):
+        self.id = id
+        self.val = val
+        if id == "special":  # Magic string
+            pass
+```
