@@ -10,10 +10,12 @@ IdPyOIDC Documentation:
 - Session management: https://idpy-oidc.readthedocs.io/en/latest/server/contents/session_management.html
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import JSONResponse, Response, HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
 
 from apps.webapi.routes import AUTH_BASE
 
@@ -22,6 +24,11 @@ router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
 # OIDC Discovery spec: https://openid.net/specs/openid-connect-discovery-1_0.html
 well_known_router: APIRouter = APIRouter(tags=["well-known"])
+
+# Templates for login page
+# Use absolute path from project root
+project_root = Path(__file__).parent.parent.parent.parent
+templates = Jinja2Templates(directory=str(project_root / "apps" / "webapi" / "templates"))
 
 
 def _get_oidc_server(request: Request) -> Any:
@@ -162,6 +169,112 @@ async def oauth_authorization_server(request: Request) -> JSONResponse:
         )
 
 
+@router.get("/login")
+async def login_page(
+    request: Request,
+    client_id: Optional[str] = None,
+    redirect_uri: Optional[str] = None,
+    state: Optional[str] = None,
+    scope: Optional[str] = None,
+    response_type: Optional[str] = None,
+    code_challenge: Optional[str] = None,
+    code_challenge_method: Optional[str] = None,
+) -> HTMLResponse:
+    """Login page for OAuth2 authorization flow.
+
+    This is the login page that users see when redirected to the authorization endpoint.
+    After authentication, the user will be redirected to complete the authorization flow.
+    """
+    # TODO: Look up client name from database
+    client_name: Optional[str] = client_id
+    
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "client_id": client_id,
+            "client_name": client_name,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "scope": scope,
+            "response_type": response_type,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+    )
+
+
+@router.post("/login")
+async def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    client_id: Optional[str] = Form(None),
+    redirect_uri: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    scope: Optional[str] = Form(None),
+    response_type: Optional[str] = Form("code"),
+    code_challenge: Optional[str] = Form(None),
+    code_challenge_method: Optional[str] = Form(None),
+) -> Response:
+    """Handle login form submission.
+
+    After authentication, redirects to authorization endpoint to complete OAuth2 flow.
+    """
+    # TODO: Authenticate user against database
+    # For now, simple validation (replace with real authentication)
+    if not username or not password:
+        # Redirect back to login with error
+        params = {
+            "error": "Username and password required",
+        }
+        if client_id:
+            params["client_id"] = client_id
+        if redirect_uri:
+            params["redirect_uri"] = redirect_uri
+        if state:
+            params["state"] = state
+        if scope:
+            params["scope"] = scope
+        
+        query_string = "&".join(f"{k}={v}" for k, v in params.items())
+        return RedirectResponse(url=f"/api/v1/auth/login?{query_string}", status_code=302)
+    
+    # TODO: Validate credentials against user database
+    # For now, accept any username/password (IMPLEMENT REAL AUTH)
+    # In production, this should:
+    # 1. Hash password and compare with stored hash
+    # 2. Create session
+    # 3. Store user ID in session
+    
+    # Build authorization URL with all parameters
+    base_url: str = _get_base_url(request)
+    auth_url = f"{base_url}/api/v1/auth/authorization"
+    
+    params: list[str] = []
+    if client_id:
+        params.append(f"client_id={client_id}")
+    if redirect_uri:
+        params.append(f"redirect_uri={redirect_uri}")
+    if state:
+        params.append(f"state={state}")
+    if scope:
+        params.append(f"scope={scope}")
+    if response_type:
+        params.append(f"response_type={response_type}")
+    if code_challenge:
+        params.append(f"code_challenge={code_challenge}")
+    if code_challenge_method:
+        params.append(f"code_challenge_method={code_challenge_method}")
+    
+    # Add user context (in production, this would come from session)
+    # For now, we'll pass username as a parameter (not secure - use session)
+    params.append(f"user={username}")  # TODO: Use session instead
+    
+    query_string = "&".join(params)
+    return RedirectResponse(url=f"{auth_url}?{query_string}", status_code=302)
+
+
 @router.get("/authorization")
 async def authorization_endpoint(request: Request) -> Response:
     """Authorization endpoint for OAuth2 authorization code flow - handled by IdPyOIDC.
@@ -178,6 +291,21 @@ async def authorization_endpoint(request: Request) -> Response:
         # IdPyOIDC Server has endpoints as a dictionary attribute
         # Access endpoint instances: https://idpy-oidc.readthedocs.io/en/latest/server/contents/intro.html
         endpoint = server.endpoint["authorization"]
+        
+        # Check if user is authenticated
+        # TODO: Check session for authenticated user
+        user = request.query_params.get("user")  # Temporary - use session in production
+        
+        if not user:
+            # User not authenticated - redirect to login page
+            # Preserve all OAuth2 parameters
+            query_params = dict(request.query_params)
+            query_string = "&".join(f"{k}={v}" for k, v in query_params.items())
+            base_url: str = _get_base_url(request)
+            return RedirectResponse(
+                url=f"{base_url}/api/v1/auth/login?{query_string}",
+                status_code=302
+            )
         
         # Prepare request data for IdPyOIDC
         # Convert Starlette Request to format IdPyOIDC expects

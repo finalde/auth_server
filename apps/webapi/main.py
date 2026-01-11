@@ -9,6 +9,7 @@ For IdPyOIDC integration details, see:
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -29,6 +30,9 @@ app.include_router(router)
 app.include_router(auth__controller.well_known_router)
 # Auth endpoints under /api/v1/auth
 app.include_router(auth__controller.router)
+
+# Mount static files (if needed)
+# app.mount("/static", StaticFiles(directory="apps/webapi/static"), name="static")
 
 
 class OIDCMiddleware(BaseHTTPMiddleware):
