@@ -4,6 +4,7 @@ uvicorn>=0.24.0
 pydantic>=2.5.0
 sqlalchemy>=2.0.0
 pyyaml>=6.0.0
+python-multipart>=0.0.6
 
 # OAuth2/OIDC
 idpyoidc>=1.0.0

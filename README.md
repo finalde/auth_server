@@ -65,6 +65,15 @@ PYTHONPATH=. cd apps/webapi && uvicorn main:app --reload
 
 The app will be available at `http://localhost:8000` (or the port specified in config.yml).
 
+### Login Page
+
+The login page is integrated into the auth_server and is available at:
+```
+http://localhost:8000/api/v1/auth/login
+```
+
+When clients redirect users to the authorization endpoint without authentication, they are automatically redirected to this login page. See `apps/webapi/README_LOGIN.md` for more details.
+
 ### WebUI (React)
 
 1. Install dependencies:
