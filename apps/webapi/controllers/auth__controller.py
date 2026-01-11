@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from apps.webapi.routes import AUTH_BASE
-
+from idpyoidc.endpoint.authorization import Authorization
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
 
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
@@ -290,7 +290,7 @@ async def authorization_endpoint(request: Request) -> Response:
         server: Any = _get_oidc_server(request)
         # IdPyOIDC Server has endpoints as a dictionary attribute
         # Access endpoint instances: https://idpy-oidc.readthedocs.io/en/latest/server/contents/intro.html
-        endpoint = server.endpoint["authorization"]
+        endpoint:Authorization = server.endpoint["authorization"]  # pyright: ignore[reportUndefinedVariable]
         
         # Check if user is authenticated
         # TODO: Check session for authenticated user
