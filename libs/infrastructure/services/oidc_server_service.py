@@ -156,6 +156,96 @@ class OIDCServerService:
                     print(f"CDB set on server context")
                 else:
                     print(f"Warning: Server context not found, CDB may not work")
+            
+            # Patch client_credentials helper to fix get_session_info issue
+            # The helper expects get_session_info to return a dict, but it may return ClientSessionInfo
+            # This is a workaround for IdPyOIDC issue where get_session_info returns ClientSessionInfo
+            # instead of a dict when called without grant=True
+            try:
+                from idpyoidc.server.oauth2.token_helper.client_credentials import ClientCredentials
+                original_process_request = ClientCredentials.process_request
+                
+                def patched_process_request(self, request, **kwargs):
+                    """Patched process_request that handles ClientSessionInfo correctly."""
+                    _context = self.endpoint.upstream_get("context")
+                    _mngr = _context.session_manager
+                    client_id = request.get("client_id")
+                    
+                    # Is there a previous session ?
+                    try:
+                        _session_info = _mngr.get(["client_credentials", client_id])
+                        # _mngr.get returns a ClientSessionInfo object, not a dict
+                        # We need to get the grant from it
+                        if hasattr(_session_info, 'subordinate') and _session_info.subordinate:
+                            _grant = _session_info.subordinate[0]
+                            # Get branch_id from the grant's session_id or create a new one
+                            branch_id = getattr(_grant, 'session_id', None)
+                            if not branch_id:
+                                # Recreate grant to get branch_id (this will reuse existing grant if present)
+                                branch_id = _mngr.add_grant(["client_credentials", client_id])
+                                # Get the grant from the new branch_id
+                                _session_info_dict = _mngr.get_session_info(branch_id, grant=True)
+                                _grant = _session_info_dict.get("grant")
+                            else:
+                                _session_info_dict = {
+                                    "branch_id": branch_id,
+                                    "client": _session_info,
+                                    "grant": _grant,
+                                    "client_id": client_id,
+                                }
+                        else:
+                            # No subordinate grants, create a new one
+                            branch_id = _mngr.add_grant(["client_credentials", client_id])
+                            _session_info_dict = _mngr.get_session_info(branch_id, grant=True)
+                            _grant = _session_info_dict.get("grant")
+                    except KeyError:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug("No previous session")
+                        branch_id = _mngr.add_grant(["client_credentials", client_id])
+                        _session_info_dict = _mngr.get_session_info(branch_id, grant=True)
+                        # Ensure _session_info is a dict
+                        if not isinstance(_session_info_dict, dict):
+                            # Convert ClientSessionInfo to dict if needed
+                            _session_info_dict = {
+                                "branch_id": branch_id,
+                                "client": _session_info_dict,
+                                "grant": _session_info_dict.subordinate[0] if hasattr(_session_info_dict, 'subordinate') and _session_info_dict.subordinate else None,
+                                "client_id": client_id,
+                            }
+                        _grant = _session_info_dict["grant"]
+                    
+                    if not _grant:
+                        return self.error_cls(error="server_error", error_description="Failed to get grant")
+                    
+                    token_type = "Bearer"
+                    
+                    _allowed = _context.cdb[client_id].get("allowed_scopes", [])
+                    access_token = self._mint_token(
+                        token_class="access_token",
+                        grant=_grant,
+                        session_id=_session_info_dict.get("branch_id", branch_id),
+                        client_id=client_id,
+                        based_on=None,
+                        scope=_allowed,
+                        token_type=token_type,
+                    )
+                    
+                    _resp = {
+                        "access_token": access_token.value,
+                        "token_type": token_type,
+                        "expires_in": access_token.expires_at - access_token.issued_at,
+                    }
+                    
+                    return _resp
+                
+                # Apply the patch
+                ClientCredentials.process_request = patched_process_request
+                print("Patched ClientCredentials.process_request to handle ClientSessionInfo")
+            except Exception as e:
+                print(f"Warning: Could not patch ClientCredentials: {e}")
+                import traceback
+                traceback.print_exc()
         except ImportError:
             # IdPyOIDC not installed - server will be None
             self._server = None
