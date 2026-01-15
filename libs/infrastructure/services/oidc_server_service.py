@@ -82,13 +82,32 @@ class OIDCServerService:
                 },
                 # Token handler arguments
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#token-handler-arguments
-                # The factory function expects token configurations directly
+                # Configure tokens to use JWT format (required for resource server validation)
                 "token_handler_args": {
                     "key_defs": key_defs,
-                    # Token lifetimes (in seconds)
-                    "code": {"lifetime": 600},  # 10 minutes
-                    "token": {"lifetime": 3600},  # 1 hour (note: "token" not "access_token")
-                    "refresh": {"lifetime": 86400 * 7},  # 7 days
+                    # Authorization code (opaque token is fine for codes)
+                    "code": {"kwargs": {"lifetime": 600}},  # 10 minutes
+                    # Access token - use JWT format so resource servers can validate it
+                    "token": {
+                        "class": "idpyoidc.server.token.jwt_token.JWTToken",
+                        "kwargs": {
+                            "lifetime": 3600,  # 1 hour
+                            "add_claims_by_scope": True,  # Include scope in token claims
+                            "alg": "RS256",  # Use RS256 for better compatibility with resource servers
+                        },
+                    },
+                    # Refresh token - use JWT format
+                    "refresh": {
+                        "class": "idpyoidc.server.token.jwt_token.JWTToken",
+                        "kwargs": {
+                            "lifetime": 86400 * 7,  # 7 days
+                        },
+                    },
+                    # ID token (always JWT in OIDC)
+                    "id_token": {
+                        "class": "idpyoidc.server.token.id_token.IDToken",
+                        "kwargs": {},
+                    },
                 },
                 # Endpoint configuration
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#endpoint

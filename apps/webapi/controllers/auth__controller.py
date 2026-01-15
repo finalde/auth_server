@@ -400,14 +400,32 @@ async def token_endpoint(request: Request) -> JSONResponse:
         try:
             response = endpoint.process_request(parsed_request)
         except Exception as process_error:
-            print(f"Process request error: {process_error}")
+            # Check if this is an authentication/authorization error (should be 401/400, not 500)
+            error_str = str(process_error).lower()
+            error_type = type(process_error).__name__
+            
+            # Authentication errors (invalid_client, invalid_grant, etc.) should be 400/401
+            if any(keyword in error_str for keyword in ['invalid_client', 'invalid_grant', 'invalid_secret', 
+                                                         'unauthorized_client', 'authentication', 'credential']):
+                status_code = 401
+                error_code = "invalid_client"
+            elif any(keyword in error_str for keyword in ['invalid_request', 'invalid_scope']):
+                status_code = 400
+                error_code = "invalid_request"
+            else:
+                # Unknown errors are server errors
+                status_code = 500
+                error_code = "server_error"
+            
+            print(f"Process request error ({error_code}): {process_error}")
             import traceback
             traceback.print_exc()
+            
             return JSONResponse(
-                status_code=500,
+                status_code=status_code,
                 content={
-                    "error": "server_error",
-                    "error_description": f"Failed to process request: {str(process_error)}"
+                    "error": error_code,
+                    "error_description": str(process_error)
                 }
             )
         
@@ -443,7 +461,14 @@ async def token_endpoint(request: Request) -> JSONResponse:
         # Check if response contains an error
         if "error" in response_content:
             print(f"Process request returned error: {response_content}")
-            status_code = 400 if response_content.get("error") != "server_error" else 500
+            error_code = response_content.get("error", "invalid_request")
+            # Map OAuth2 error codes to HTTP status codes
+            if error_code in ["invalid_client", "invalid_grant", "unauthorized_client"]:
+                status_code = 401
+            elif error_code == "server_error":
+                status_code = 500
+            else:
+                status_code = 400  # invalid_request, invalid_scope, etc.
             return JSONResponse(
                 status_code=status_code,
                 content=response_content

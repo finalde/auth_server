@@ -19,7 +19,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 AUTH_SERVER_URL: str = "http://localhost:8000"
 RESOURCE_SERVER_URL: str = "http://localhost:8001"
 CLIENT_ID: str = "test_client"
-CLIENT_SECRET: str = "test_secret"
+CLIENT_SECRET: str = "test_secrets"
 SCOPE: str = "openid read write"
 
 
@@ -67,6 +67,23 @@ async def get_access_token() -> Optional[str]:
         print(f"✅ Successfully obtained access token")
         print(f"   Token type: {token_response.get('token_type', 'Bearer')}")
         print(f"   Expires in: {token_response.get('expires_in', 'unknown')} seconds")
+        print(f"\n   📋 Token Details:")
+        print(f"   Full access token: {access_token}")
+        
+        # Decode token header to show details
+        try:
+            import base64
+            import json
+            parts = access_token.split('.')
+            if len(parts) >= 2:
+                header = json.loads(base64.urlsafe_b64decode(parts[0] + '==').decode())
+                payload = json.loads(base64.urlsafe_b64decode(parts[1] + '==').decode())
+                print(f"   Token header: {json.dumps(header, indent=6)}")
+                print(f"   Token payload (iss): {payload.get('iss')}")
+                print(f"   Token payload (kid in header): {header.get('kid')}")
+        except Exception as e:
+            print(f"   Could not decode token: {e}")
+        
         return access_token
         
     except Exception as e:
