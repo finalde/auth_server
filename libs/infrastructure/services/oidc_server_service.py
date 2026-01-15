@@ -190,6 +190,16 @@ class OIDCServerService:
                     _mngr = _context.session_manager
                     client_id = request.get("client_id")
                     
+                    # Validate client_id before using it
+                    # If client_id is None or empty, authentication already failed
+                    # Return proper error response instead of letting original code crash
+                    if not client_id:
+                        # Return proper OAuth2 error response for missing/invalid client_id
+                        return self.error_cls(
+                            error="invalid_client",
+                            error_description="Client authentication failed: missing or invalid client_id"
+                        )
+                    
                     # Is there a previous session ?
                     try:
                         _session_info = _mngr.get(["client_credentials", client_id])

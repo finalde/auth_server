@@ -371,34 +371,101 @@ async def token_endpoint(request: Request) -> JSONResponse:
         request_data = dict(form_data) if form_data else {}
         http_info = _build_http_info(request)
         
-        # Debug: Print request data
-        print(f"Token request - client_id: {request_data.get('client_id')}, grant_type: {request_data.get('grant_type')}")
+        # Debug: Print request data (don't log secrets)
+        client_id = request_data.get('client_id')
+        grant_type = request_data.get('grant_type')
+        print(f"Token request - client_id: {client_id}, grant_type: {grant_type}")
         
         # Parse and process token request
         try:
             parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         except Exception as parse_error:
-            print(f"Parse request error: {parse_error}")
-            import traceback
-            traceback.print_exc()
+            # Log parse errors with more context
+            error_msg = str(parse_error)
+            print(f"Parse request error: {error_msg}")
+            # Only print full traceback for unexpected errors, not authentication failures
+            if "client" not in error_msg.lower() and "secret" not in error_msg.lower() and "auth" not in error_msg.lower():
+                import traceback
+                traceback.print_exc()
+            
+            # Return appropriate error response
+            if "client" in error_msg.lower() or "secret" in error_msg.lower() or "auth" in error_msg.lower():
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "invalid_client",
+                        "error_description": "Client authentication failed"
+                    }
+                )
             return JSONResponse(
                 status_code=400,
                 content={
                     "error": "invalid_request",
-                    "error_description": f"Failed to parse request: {str(parse_error)}"
+                    "error_description": f"Failed to parse request: {error_msg}"
                 }
             )
         
         # Check if parse_request returned an error response
         if isinstance(parsed_request, dict) and "error" in parsed_request:
             print(f"Parse request returned error: {parsed_request}")
+            error_code = parsed_request.get("error", "invalid_request")
+            # Map OAuth2 error codes to HTTP status codes
+            if error_code in ["invalid_client", "invalid_grant", "unauthorized_client"]:
+                status_code = 401
+            elif error_code == "server_error":
+                status_code = 500
+            else:
+                status_code = 400
             return JSONResponse(
-                status_code=400,
+                status_code=status_code,
                 content=parsed_request
             )
         
+        # Check if parsed_request is missing required fields (authentication might have failed)
+        # parsed_request might be a Message object, so check if it has client_id
+        if hasattr(parsed_request, 'get'):
+            if not parsed_request.get("client_id"):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "invalid_client",
+                        "error_description": "Client authentication failed: missing or invalid client_id"
+                    }
+                )
+        elif isinstance(parsed_request, dict):
+            if not parsed_request.get("client_id"):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "invalid_client",
+                        "error_description": "Client authentication failed: missing or invalid client_id"
+                    }
+                )
+        
         try:
             response = endpoint.process_request(parsed_request)
+        except KeyError as key_error:
+            # KeyError usually means missing required field (like client_id)
+            # This typically indicates authentication failure
+            missing_key = str(key_error)
+            print(f"Process request error - missing key: {missing_key}")
+            
+            if "client_id" in missing_key:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "invalid_client",
+                        "error_description": "Client authentication failed: missing client_id"
+                    }
+                )
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "invalid_request",
+                        "error_description": f"Missing required parameter: {missing_key}"
+                    }
+                )
         except Exception as process_error:
             # Check if this is an authentication/authorization error (should be 401/400, not 500)
             error_str = str(process_error).lower()
@@ -413,13 +480,16 @@ async def token_endpoint(request: Request) -> JSONResponse:
                 status_code = 400
                 error_code = "invalid_request"
             else:
-                # Unknown errors are server errors
+                # Unknown errors are server errors - log full traceback for debugging
                 status_code = 500
                 error_code = "server_error"
+                import traceback
+                print(f"Process request error ({error_code}): {process_error}")
+                traceback.print_exc()
             
-            print(f"Process request error ({error_code}): {process_error}")
-            import traceback
-            traceback.print_exc()
+            if status_code != 500:
+                # For expected errors, just log the error message
+                print(f"Process request error ({error_code}): {process_error}")
             
             return JSONResponse(
                 status_code=status_code,

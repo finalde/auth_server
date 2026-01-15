@@ -19,7 +19,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 AUTH_SERVER_URL: str = "http://localhost:8000"
 RESOURCE_SERVER_URL: str = "http://localhost:8001"
 CLIENT_ID: str = "test_client"
-CLIENT_SECRET: str = "test_secrets"
+CLIENT_SECRET: str = "test_secret"
 SCOPE: str = "openid read write"
 
 
