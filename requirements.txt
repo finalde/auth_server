@@ -6,6 +6,9 @@ sqlalchemy>=2.0.0
 pyyaml>=6.0.0
 python-multipart>=0.0.6
 
+# Database
+psycopg2-binary>=2.9.0
+
 # OAuth2/OIDC
 idpyoidc>=1.0.0
 

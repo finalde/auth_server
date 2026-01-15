@@ -2,9 +2,13 @@
 
 from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql import func
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Base class for all DAOs with legacy annotation support."""
+    __allow_unmapped__ = True  # Allow legacy SQLAlchemy annotations
 
 
 class BaseDAO(Base):

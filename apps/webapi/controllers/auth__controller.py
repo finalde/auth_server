@@ -371,14 +371,101 @@ async def token_endpoint(request: Request) -> JSONResponse:
         request_data = dict(form_data) if form_data else {}
         http_info = _build_http_info(request)
         
-        # Parse and process token request
-        parsed_request = endpoint.parse_request(request_data, http_info=http_info)
-        response = endpoint.process_request(parsed_request)
+        # Debug: Print request data
+        print(f"Token request - client_id: {request_data.get('client_id')}, grant_type: {request_data.get('grant_type')}")
         
-        return JSONResponse(content=response)
+        # Parse and process token request
+        try:
+            parsed_request = endpoint.parse_request(request_data, http_info=http_info)
+        except Exception as parse_error:
+            print(f"Parse request error: {parse_error}")
+            import traceback
+            traceback.print_exc()
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "invalid_request",
+                    "error_description": f"Failed to parse request: {str(parse_error)}"
+                }
+            )
+        
+        # Check if parse_request returned an error response
+        if isinstance(parsed_request, dict) and "error" in parsed_request:
+            print(f"Parse request returned error: {parsed_request}")
+            return JSONResponse(
+                status_code=400,
+                content=parsed_request
+            )
+        
+        try:
+            response = endpoint.process_request(parsed_request)
+        except Exception as process_error:
+            print(f"Process request error: {process_error}")
+            import traceback
+            traceback.print_exc()
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "server_error",
+                    "error_description": f"Failed to process request: {str(process_error)}"
+                }
+            )
+        
+        # IdPyOIDC process_request returns a dict with response information
+        # The response dict typically has 'response_args' key containing the actual response
+        # or the response itself if it's already a dict
+        if isinstance(response, dict):
+            # Check if response has 'response_args' (common IdPyOIDC pattern)
+            if 'response_args' in response:
+                response_content = response['response_args']
+            elif 'response' in response:
+                response_content = response['response']
+            else:
+                response_content = response
+        elif hasattr(response, 'to_dict'):
+            response_content = response.to_dict()
+        elif hasattr(response, '__dict__'):
+            response_content = dict(response.__dict__)
+        else:
+            # Try to convert to dict
+            try:
+                if hasattr(response, 'response'):
+                    response_content = response.response
+                else:
+                    response_content = {"response": str(response)}
+            except:
+                response_content = {"response": str(response)}
+        
+        # Ensure response_content is a dict
+        if not isinstance(response_content, dict):
+            response_content = {"response": str(response_content)}
+        
+        # Check if response contains an error
+        if "error" in response_content:
+            print(f"Process request returned error: {response_content}")
+            status_code = 400 if response_content.get("error") != "server_error" else 500
+            return JSONResponse(
+                status_code=status_code,
+                content=response_content
+            )
+        
+        return JSONResponse(content=response_content)
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Token endpoint error: {error_details}")
+        # Return more detailed error information
+        error_response = {
+            "error": "server_error",
+            "error_description": str(e),
+            "error_type": type(e).__name__,
+        }
+        # Include traceback in development (remove in production)
+        if hasattr(request.app, "debug") and request.app.debug:
+            error_response["traceback"] = error_details.split("\n")
         return JSONResponse(
-            status_code=500, content={"error": f"Token error: {str(e)}"}
+            status_code=500, 
+            content=error_response
         )
 
 

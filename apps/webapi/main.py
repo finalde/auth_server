@@ -16,6 +16,7 @@ from starlette.responses import Response
 from apps.webapi.controllers import auth__controller
 from apps.webapi.dependencies import get_config
 from apps.webapi.routes import HEALTH, router
+from libs.infrastructure.services.oidc_client_database import create_oidc_cdb
 from libs.infrastructure.services.oidc_server_service import OIDCServerService
 
 app: FastAPI = FastAPI(
@@ -55,8 +56,14 @@ class OIDCMiddleware(BaseHTTPMiddleware):
             if host == "0.0.0.0":
                 host = "localhost"
             base_url: str = f"http://{host}:{port}"
+            
+            # Create CDB (Client Database) for IdPyOIDC
+            database_url: str = config.get_database_url()
+            cdb = create_oidc_cdb(database_url)
+            
+            # Configure OIDC server with CDB
             oidc_service = OIDCServerService(issuer=base_url)
-            oidc_service.configure({})
+            oidc_service.configure({}, cdb=cdb)
             request.app.state.oidc_server_service = oidc_service
         
         request.state.oidc_server = request.app.state.oidc_server_service.get_server()
@@ -79,8 +86,15 @@ async def startup_event() -> None:
     if host == "0.0.0.0":
         host = "localhost"
     base_url: str = f"http://{host}:{port}"
+    
+    # Create CDB (Client Database) for IdPyOIDC
+    # CDB allows IdPyOIDC to look up clients from our database
+    database_url: str = config.get_database_url()
+    cdb = create_oidc_cdb(database_url)
+    
+    # Configure OIDC server with CDB
     oidc_service = OIDCServerService(issuer=base_url)
-    oidc_service.configure({})
+    oidc_service.configure({}, cdb=cdb)
     app.state.oidc_server_service = oidc_service
 
 

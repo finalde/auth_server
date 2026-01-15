@@ -40,7 +40,7 @@ class OIDCServerService:
         self._server: Optional[Server] = None
         self._config: Optional[OPConfiguration] = None
 
-    def configure(self, config: Dict[str, Any]) -> None:
+    def configure(self, config: Dict[str, Any], cdb: Optional[Any] = None) -> None:
         """Configure OIDC server with custom configuration.
 
         Configuration structure follows IdPyOIDC documentation:
@@ -49,6 +49,9 @@ class OIDCServerService:
         Args:
             config: Additional configuration dictionary that will be merged
                 with default configuration. See IdPyOIDC docs for available options.
+            cdb: Optional Client Database (CDB) for client lookups.
+                If provided, will be used for client authentication.
+                See: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#client-database-cdb
 
         Raises:
             RuntimeError: If configuration fails or IdPyOIDC is not installed.
@@ -79,8 +82,13 @@ class OIDCServerService:
                 },
                 # Token handler arguments
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#token-handler-arguments
+                # The factory function expects token configurations directly
                 "token_handler_args": {
                     "key_defs": key_defs,
+                    # Token lifetimes (in seconds)
+                    "code": {"lifetime": 600},  # 10 minutes
+                    "token": {"lifetime": 3600},  # 1 hour (note: "token" not "access_token")
+                    "refresh": {"lifetime": 86400 * 7},  # 7 days
                 },
                 # Endpoint configuration
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#endpoint
@@ -92,7 +100,9 @@ class OIDCServerService:
                     },
                     "token": {
                         "path": "token",
-                        "class": "idpyoidc.server.oidc.token.Token",
+                        # Use OAuth2 token endpoint which supports client_credentials
+                        # OIDC token endpoint may not support all OAuth2 grant types
+                        "class": "idpyoidc.server.oauth2.token.Token",
                         "kwargs": {},
                     },
                     "userinfo": {
@@ -115,9 +125,9 @@ class OIDCServerService:
                 # OIDC Discovery configuration (capabilities)
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#capabilities
                 "response_types_supported": ["code"],
-                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
                 "subject_types_supported": ["public"],
-                "scopes_supported": ["openid"],
+                "scopes_supported": ["openid", "read", "write"],
                 "id_token_signing_alg_values_supported": ["RS256"],
                 "token_endpoint_auth_methods_supported": [
                     "client_secret_basic",
@@ -125,6 +135,9 @@ class OIDCServerService:
                 ],
                 **config,
             }
+            
+            # Don't put CDB in config - it contains unpicklable objects (SQLAlchemy engine)
+            # Instead, we'll set it on the server context after initialization
             # Create OPConfiguration following IdPyOIDC setup:
             # https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
             self._config = OPConfiguration(
@@ -134,6 +147,15 @@ class OIDCServerService:
             # Server initialization follows IdPyOIDC patterns:
             # https://idpy-oidc.readthedocs.io/en/latest/server/contents/setup.html
             self._server = Server(self._config)
+            
+            # Set CDB on server context after initialization (avoids deepcopy issues)
+            # IdPyOIDC uses context.cdb for client lookups
+            if cdb is not None:
+                if hasattr(self._server, 'context'):
+                    self._server.context.cdb = cdb
+                    print(f"CDB set on server context")
+                else:
+                    print(f"Warning: Server context not found, CDB may not work")
         except ImportError:
             # IdPyOIDC not installed - server will be None
             self._server = None

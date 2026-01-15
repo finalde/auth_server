@@ -7,9 +7,10 @@ This directory contains test clients for validating the auth_server OAuth2/OIDC 
 The test clients demonstrate different OAuth2 flows and use cases. All Python clients use **[Authlib](https://docs.authlib.org/)** for OAuth2/OIDC client functionality, which provides automatic OIDC Discovery and spec-compliant token handling.
 
 1. **Resource Server** - Protected API that validates OAuth2 tokens (uses Authlib)
-2. **Batch Client** - Python script using Client Credentials flow (uses Authlib)
-3. **SPA Client** - React SPA using Authorization Code flow with PKCE
-4. **Caller WebAPI** - Service-to-service client using Authorization Code flow (uses Authlib)
+2. **Test App** - Python script that tests both public and protected endpoints (uses Authlib)
+3. **Batch Client** - Python script using Client Credentials flow (uses Authlib)
+4. **SPA Client** - React SPA using Authorization Code flow with PKCE
+5. **Caller WebAPI** - Service-to-service client using Authorization Code flow (uses Authlib)
 
 ## Quick Start
 
@@ -30,7 +31,21 @@ python main.py
 # Runs on http://localhost:8001
 ```
 
-### 3. Test with Batch Client
+### 3. Test with Test App (Simple End-to-End Test)
+
+```bash
+# From project root
+python test_clients/test_app/main.py
+```
+
+This script:
+- Calls the public endpoint (no auth)
+- Gets an access token using client credentials flow
+- Calls protected endpoints with the token
+
+**Test Data**: Uses `test_client` / `test_secret` (defined in `scripts/db/initial.sql`)
+
+### 4. Test with Batch Client
 
 ```bash
 cd test_clients/batch_client
@@ -38,7 +53,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 4. Test with SPA Client
+### 5. Test with SPA Client
 
 ```bash
 cd test_clients/spa_client
@@ -47,7 +62,7 @@ npm run dev
 # Runs on http://localhost:3000
 ```
 
-### 5. Test with Caller WebAPI
+### 6. Test with Caller WebAPI
 
 ```bash
 cd test_clients/caller_webapi
@@ -58,7 +73,21 @@ python main.py
 
 ## OAuth2 Flows Demonstrated
 
-### Client Credentials Flow (Batch Client)
+### Client Credentials Flow (Test App & Batch Client)
+
+**Use Case**: Machine-to-machine authentication, server-to-server communication, testing
+
+**Flow**:
+1. Client uses Authlib to discover auth_server via OIDC Discovery
+2. Client authenticates with `client_id` and `client_secret`
+3. Auth server issues access token
+4. Client uses token to access protected resources
+
+**Clients**: 
+- `test_app/` - Simple end-to-end test (uses Authlib)
+- `batch_client/` - Batch processing example (uses Authlib)
+
+### Client Credentials Flow (Batch Client - Detailed)
 
 **Use Case**: Machine-to-machine authentication, server-to-server communication
 
@@ -67,8 +96,6 @@ python main.py
 2. Client authenticates with `client_id` and `client_secret`
 3. Auth server issues access token
 4. Client uses token to access protected resources
-
-**Client**: `batch_client/` (uses Authlib)
 
 ### Authorization Code Flow with PKCE (SPA Client)
 
@@ -99,7 +126,14 @@ python main.py
 
 ## Client Registration
 
-Before using test clients, register them in the auth_server:
+Before using test clients, register them in the auth_server. Test data is available in `scripts/db/initial.sql`.
+
+### Test App (Default Test Client)
+- Client ID: `test_client`
+- Client Secret: `test_secret`
+- Grant Types: `authorization_code`, `client_credentials`, `refresh_token`
+- Scopes: `openid`, `read`, `write`
+- **Note**: This client is pre-configured in `initial.sql` for quick testing
 
 ### Batch Client
 - Client ID: `batch_client`
@@ -222,6 +256,7 @@ All Python test clients use **[Authlib](https://docs.authlib.org/)** for OAuth2/
 ┌─────────────┐
 │   Clients   │
 │             │
+│ • Test App  │ (Client Credentials + Authlib)
 │ • Batch     │ (Client Credentials + Authlib)
 │ • SPA       │ (Auth Code + PKCE)
 │ • WebAPI    │ (Auth Code + Authlib)
