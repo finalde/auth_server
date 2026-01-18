@@ -1,21 +1,24 @@
 """Resource Server - Protected API.
 
 This is a test resource server that protects its endpoints using OAuth2 access tokens
-from the auth_server. It uses Authlib to validate tokens via OIDC Discovery and JWKS.
+from the auth_server. It uses the authorization library for policy-based authorization.
 
 This demonstrates a Web API using auth_server for authentication and authorization.
+
+Usage:
+    # Option 1: Run as module from project root (recommended)
+    python -m test_clients.resource_server.main
+    
+    # Option 2: Install package in editable mode first
+    pip install -e .
+    python test_clients/resource_server/main.py
 """
 
-import base64
-import json
-import httpx
-from typing import Optional
-
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from authlib.jose import JsonWebKey, jwt
-from authlib.jose.errors import DecodeError, BadSignatureError
+
+from libs.infrastructure.authorization import Authorize, configure_authorization
+from test_clients.resource_server.policies import ReadScopePolicy, WriteScopePolicy
 
 app: FastAPI = FastAPI(
     title="Resource Server API",
@@ -23,175 +26,13 @@ app: FastAPI = FastAPI(
     version="1.0.0",
 )
 
-security = HTTPBearer()
 AUTH_SERVER_URL: str = "http://localhost:8000"
 
-# JWKS URI and issuer (no cache - always fetch fresh to handle key rotation)
-# The auth server generates new keys on each restart, so caching JWKS causes stale key errors
-_jwks_uri: Optional[str] = None
-_issuer: Optional[str] = None
 
-
-async def _load_discovery_document() -> dict:
-    """Load OIDC discovery document from auth_server."""
-    discovery_url = f"{AUTH_SERVER_URL}/.well-known/openid-configuration"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(discovery_url, timeout=10)
-        response.raise_for_status()
-        return response.json()
-
-
-async def _get_jwks() -> dict:
-    """Get JWKS from auth server using discovery.
-    
-    Always fetches fresh JWKS to handle key rotation.
-    In production, you might want to cache with TTL and handle key rotation gracefully.
-    """
-    global _jwks_uri, _issuer
-    
-    # Always fetch fresh JWKS to avoid stale key issues after server restarts
-    # The auth server generates new keys on each restart, so cached JWKS becomes invalid
-    discovery = await _load_discovery_document()
-    _issuer = discovery["issuer"]
-    _jwks_uri = discovery["jwks_uri"]
-    
-    # Fetch fresh JWKS
-    async with httpx.AsyncClient() as client:
-        response = await client.get(_jwks_uri, timeout=10)
-        response.raise_for_status()
-        jwks = response.json()
-    
-    return jwks
-
-
-def _validate_token(token: str, jwks: dict) -> dict:
-    """Validate access token and return claims.
-
-    Uses Authlib to decode and validate JWT tokens from auth_server.
-    
-    Args:
-        token: JWT access token
-        jwks: JSON Web Key Set from auth_server
-        
-    Returns:
-        Token claims if valid
-        
-    Raises:
-        HTTPException: If token is invalid
-    """
-    try:
-        # Manually decode JWT header to get kid (jwt is a class, not a module with get_unverified_header)
-        # JWT format: header.payload.signature (each part is base64url encoded)
-        try:
-            parts = token.split(".")
-            if len(parts) != 3:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid token format: JWT must have 3 parts"
-                )
-            
-            # Decode header (add padding if needed for base64)
-            header_b64 = parts[0]
-            header_b64 += "=" * (4 - len(header_b64) % 4)  # Add padding
-            header_json = base64.urlsafe_b64decode(header_b64)
-            decoded_header = json.loads(header_json)
-            
-            token_kid = decoded_header.get("kid")
-            token_alg = decoded_header.get("alg")
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Failed to decode token header: {str(e)}"
-            )
-        
-        # Verify the key exists in JWKS
-        matching_key = None
-        for key in jwks.get("keys", []):
-            if key.get("kid") == token_kid:
-                matching_key = key
-                break
-        
-        if not matching_key:
-            available_kids = [k.get("kid") for k in jwks.get("keys", [])]
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Key with kid '{token_kid}' not found in JWKS. Available kids: {available_kids}"
-            )
-        
-        # Authlib's jwt.decode can accept JWKS dict directly
-        # It will automatically resolve the key by kid from the token header
-        # This is simpler and more reliable than importing key sets
-        claims = jwt.decode(
-            token,
-            jwks,  # Pass JWKS dict directly - Authlib handles kid resolution
-            claims_options={
-                "iss": {"essential": True, "value": _issuer},
-                "exp": {"essential": True},
-            },
-        )
-        
-        # Validate claims (expiration, etc.)
-        claims.validate()
-        
-        print(f"DEBUG: Token validation successful")
-        return claims
-    except Exception as e:
-        # More detailed error information for debugging
-        import traceback
-        error_details = traceback.format_exc()
-        # Print to stderr so it shows up in server logs
-        import sys
-        print(f"Token validation error details:\n{error_details}", file=sys.stderr)
-        
-        # Try to decode without validation to see what's in the token
-        try:
-            # Manually decode header and payload for debugging
-            parts = token.split(".")
-            if len(parts) == 3:
-                # Decode header
-                header_b64 = parts[0] + "=" * (4 - len(parts[0]) % 4)
-                header_json = base64.urlsafe_b64decode(header_b64)
-                decoded_header = json.loads(header_json)
-                
-                # Decode payload
-                payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
-                payload_json = base64.urlsafe_b64decode(payload_b64)
-                decoded_payload = json.loads(payload_json)
-                
-                print(f"Token header: {decoded_header}", file=sys.stderr)
-                print(f"Token payload (iss): {decoded_payload.get('iss')}", file=sys.stderr)
-                print(f"Expected issuer: {_issuer}", file=sys.stderr)
-                print(f"JWKS key IDs: {[k.get('kid') for k in jwks.get('keys', [])]}", file=sys.stderr)
-        except Exception as decode_error:
-            print(f"Could not decode token for debugging: {decode_error}", file=sys.stderr)
-        
-        # Return more specific error message
-        error_msg = str(e)
-        if "Key not found" in error_msg or "key" in error_msg.lower():
-            error_msg = f"Key lookup failed: {error_msg}. Token kid: {token_kid}, Available kids: {[k.get('kid') for k in jwks.get('keys', [])]}"
-        
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {error_msg}"
-        )
-
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> dict:
-    """Dependency to get current authenticated user.
-
-    Validates JWT token from auth_server using Authlib and OIDC Discovery.
-    """
-    token = credentials.credentials
-    
-    # Get JWKS (uses discovery for auto-configuration)
-    jwks = await _get_jwks()
-    
-    # Validate token
-    claims = _validate_token(token, jwks)
-    
-    return claims
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Configure authorization library on application startup."""
+    configure_authorization(auth_server_url=AUTH_SERVER_URL)
 
 
 @app.get("/")
@@ -205,43 +46,101 @@ async def root() -> dict[str, str]:
     }
 
 
-@app.get("/protected")
-async def protected_resource(
-    current_user: dict = Depends(get_current_user)
-) -> JSONResponse:
-    """Protected resource endpoint.
-
-    Requires valid OAuth2 access token from auth_server.
-    """
+@app.get("/public")
+async def public_resource() -> JSONResponse:
+    """Public resource endpoint - no authentication required."""
     return JSONResponse(
         content={
-            "message": "This is a protected resource",
+            "message": "This is a public resource",
+            "status": "public",
+            "data": "Anyone can access this endpoint"
+        }
+    )
+
+
+@app.get("/protected/read")
+@Authorize(policy=ReadScopePolicy())
+async def protected_read_resource(request: Request) -> JSONResponse:
+    """Protected resource endpoint requiring 'read' scope.
+
+    Uses @Authorize decorator with ReadScopePolicy to enforce authorization.
+    Requires valid OAuth2 access token with 'read' scope from auth_server.
+    
+    Note: Token claims may represent:
+    - Client (client credentials flow): claims['sub'] = client_id
+    - User (authorization code flow): claims['sub'] = user_id
+    """
+    # Token claims are available in request.state.claims (or request.state.user for compatibility)
+    # In client credentials flow, there is no user - the claims represent the client
+    # Starlette's State uses attribute access, not dict-style .get() method
+    claims = getattr(request.state, 'claims', None) or getattr(request.state, 'user', None)
+    if not claims:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Claims not found in request state"
+        )
+    # Ensure claims is a dict (should always be, but check for safety)
+    if not isinstance(claims, dict):
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid claims type: {type(claims)}"
+        )
+    scopes = claims.get("scope", "").split() if claims.get("scope") else []
+
+    return JSONResponse(
+        content={
+            "message": "This is a protected resource requiring 'read' scope",
             "user": {
-                "sub": current_user.get("sub"),
-                "scopes": current_user.get("scope", "").split() if current_user.get("scope") else [],
+                "sub": claims.get("sub"),
+                "scopes": scopes,
             },
-            "resource": "data_from_resource_server",
+            "resource": "read_data_from_resource_server",
             "authenticated_via": "auth_server",
         }
     )
 
 
-@app.get("/api/data")
-async def get_data(
-    current_user: dict = Depends(get_current_user)
-) -> JSONResponse:
-    """Get protected data.
+@app.get("/protected/write")
+@Authorize(policy=WriteScopePolicy())
+async def protected_write_resource(request: Request) -> JSONResponse:
+    """Protected resource endpoint requiring 'write' or 'admin' scope.
 
-    Requires valid OAuth2 access token from auth_server.
+    Uses @Authorize decorator with WriteScopePolicy to enforce authorization.
+    Requires valid OAuth2 access token with 'write' or 'admin' scope from auth_server.
+    
+    Note: Token claims may represent:
+    - Client (client credentials flow): claims['sub'] = client_id
+    - User (authorization code flow): claims['sub'] = user_id
     """
+    # Token claims are available in request.state.claims (or request.state.user for compatibility)
+    # In client credentials flow, there is no user - the claims represent the client
+    # Starlette's State uses attribute access, not dict-style .get() method
+    claims = getattr(request.state, 'claims', None) or getattr(request.state, 'user', None)
+    if not claims:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Claims not found in request state"
+        )
+    # Ensure claims is a dict (should always be, but check for safety)
+    if not isinstance(claims, dict):
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Invalid claims type: {type(claims)}"
+        )
+    scopes = claims.get("scope", "").split() if claims.get("scope") else []
+
     return JSONResponse(
         content={
-            "data": [
-                {"id": 1, "name": "Item 1", "value": 100},
-                {"id": 2, "name": "Item 2", "value": 200},
-                {"id": 3, "name": "Item 3", "value": 300},
-            ],
-            "user": current_user.get("sub", "unknown"),
+            "message": "This is a protected resource requiring 'write' or 'admin' scope",
+            "user": {
+                "sub": claims.get("sub"),
+                "scopes": scopes,
+            },
+            "resource": "write_data_from_resource_server",
             "authenticated_via": "auth_server",
         }
     )

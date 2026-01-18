@@ -20,7 +20,7 @@ AUTH_SERVER_URL: str = "http://localhost:8000"
 RESOURCE_SERVER_URL: str = "http://localhost:8001"
 CLIENT_ID: str = "test_client"
 CLIENT_SECRET: str = "test_secret"
-SCOPE: str = "openid read write"
+SCOPE: str = "openid data.read"  # Resource-oriented scope (best practice)
 
 
 async def get_access_token() -> Optional[str]:
@@ -53,9 +53,11 @@ async def get_access_token() -> Optional[str]:
         )
         
         # Get token using client credentials flow
+        # Explicitly pass scope to ensure it's included in the token request
         token_response = await client.fetch_token(
             token_endpoint,
             grant_type="client_credentials",
+            scope=SCOPE,  # Explicitly pass scope to ensure it's included
         )
         
         access_token: str = token_response.get("access_token")
@@ -80,6 +82,10 @@ async def get_access_token() -> Optional[str]:
                 payload = json.loads(base64.urlsafe_b64decode(parts[1] + '==').decode())
                 print(f"   Token header: {json.dumps(header, indent=6)}")
                 print(f"   Token payload (iss): {payload.get('iss')}")
+                print(f"   Token payload (sub): {payload.get('sub')}")
+                print(f"   Token payload (scope): {payload.get('scope')}")
+                print(f"   Token payload (aud): {payload.get('aud')}")
+                print(f"   Token payload keys: {list(payload.keys())}")
                 print(f"   Token payload (kid in header): {header.get('kid')}")
         except Exception as e:
             print(f"   Could not decode token: {e}")
@@ -101,7 +107,7 @@ async def call_public_endpoint() -> None:
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{RESOURCE_SERVER_URL}/")
+            response = await client.get(f"{RESOURCE_SERVER_URL}/public")
             response.raise_for_status()
             
             print(f"✅ Status: {response.status_code}")
@@ -117,13 +123,13 @@ async def call_public_endpoint() -> None:
 
 
 async def call_protected_endpoint(access_token: str) -> None:
-    """Call the protected endpoint (requires authentication).
+    """Call the protected /protected/read endpoint (requires 'read' scope).
     
     Args:
         access_token: OAuth2 access token.
     """
     print("\n" + "="*60)
-    print("🔒 Calling PROTECTED endpoint (auth required)")
+    print("🔒 Calling PROTECTED /protected/read endpoint (requires 'read' scope)")
     print("="*60)
     
     try:
@@ -133,7 +139,7 @@ async def call_protected_endpoint(access_token: str) -> None:
                 "Content-Type": "application/json",
             }
             response = await client.get(
-                f"{RESOURCE_SERVER_URL}/protected",
+                f"{RESOURCE_SERVER_URL}/protected/read",
                 headers=headers,
             )
             response.raise_for_status()
@@ -151,13 +157,13 @@ async def call_protected_endpoint(access_token: str) -> None:
 
 
 async def call_protected_data_endpoint(access_token: str) -> None:
-    """Call the protected /api/data endpoint.
+    """Call the protected /protected/write endpoint (requires 'write' or 'admin' scope).
     
     Args:
         access_token: OAuth2 access token.
     """
     print("\n" + "="*60)
-    print("📊 Calling PROTECTED /api/data endpoint")
+    print("📊 Calling PROTECTED /protected/write endpoint (requires 'write' or 'admin' scope)")
     print("="*60)
     
     try:
@@ -167,7 +173,7 @@ async def call_protected_data_endpoint(access_token: str) -> None:
                 "Content-Type": "application/json",
             }
             response = await client.get(
-                f"{RESOURCE_SERVER_URL}/api/data",
+                f"{RESOURCE_SERVER_URL}/protected/write",
                 headers=headers,
             )
             response.raise_for_status()
@@ -180,6 +186,8 @@ async def call_protected_data_endpoint(access_token: str) -> None:
     except httpx.HTTPStatusError as e:
         print(f"❌ HTTP Error: {e.response.status_code}")
         print(f"   Response: {e.response.text}")
+        if e.response.status_code == 403:
+            print("   ℹ️  This endpoint requires 'write' or 'admin' scope")
     except Exception as e:
         print(f"❌ Error: {str(e)}")
 

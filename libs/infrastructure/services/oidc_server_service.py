@@ -146,7 +146,7 @@ class OIDCServerService:
                 "response_types_supported": ["code"],
                 "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
                 "subject_types_supported": ["public"],
-                "scopes_supported": ["openid", "read", "write"],
+                "scopes_supported": ["openid", "data.read", "data.write", "read", "write", "admin"],  # Include both resource-oriented and legacy scopes
                 "id_token_signing_alg_values_supported": ["RS256"],
                 "token_endpoint_auth_methods_supported": [
                     "client_secret_basic",
@@ -242,21 +242,97 @@ class OIDCServerService:
                                 "grant": _session_info_dict.subordinate[0] if hasattr(_session_info_dict, 'subordinate') and _session_info_dict.subordinate else None,
                                 "client_id": client_id,
                             }
-                        _grant = _session_info_dict["grant"]
+                        _grant = _session_info_dict.get("grant")
                     
                     if not _grant:
                         return self.error_cls(error="server_error", error_description="Failed to get grant")
                     
+                    # For client credentials flow, the client IS the user (no human user)
+                    # Set grant's sub to client_id (this is what the token's sub claim will be)
+                    # This ensures IdPyOIDC knows the subject when minting the token
+                    # Try multiple ways to set sub, depending on grant implementation
+                    if hasattr(_grant, 'sub'):
+                        _grant.sub = client_id
+                    if hasattr(_grant, 'set'):
+                        try:
+                            _grant.set("sub", client_id)
+                        except (TypeError, AttributeError):
+                            pass  # set() may not be callable or may not accept this signature
+                    
                     token_type = "Bearer"
                     
-                    _allowed = _context.cdb[client_id].get("allowed_scopes", [])
+                    # Get client's allowed scopes from CDB
+                    # CDB returns 'scopes' not 'allowed_scopes'
+                    client_info = _context.cdb[client_id]
+                    client_allowed_scopes = client_info.get("scopes", []) if isinstance(client_info, dict) else getattr(client_info, "scopes", [])
+                    
+                    # Get requested scope from token request (if provided)
+                    # IdPyOIDC may return scope as either a string (space-separated) or a list
+                    # Filter requested scopes to only include what the client is allowed to have
+                    requested_scope_param = request.get("scope", "")
+                    if isinstance(requested_scope_param, list):
+                        requested_scopes = requested_scope_param
+                    elif isinstance(requested_scope_param, str):
+                        requested_scopes = requested_scope_param.split() if requested_scope_param else []
+                    else:
+                        requested_scopes = []
+                    
+                    # Intersect requested scopes with client's allowed scopes
+                    # This ensures we only issue tokens with scopes the client is allowed to have
+                    final_scopes = [s for s in requested_scopes if s in client_allowed_scopes]
+                    
+                    # If no scope was requested, use all allowed scopes (default behavior)
+                    # If scope was requested but filtered out, use what remains (or empty if none valid)
+                    scope_to_issue = final_scopes if requested_scopes else client_allowed_scopes
+                    
+                    # Ensure the grant's scope is set (for token handler's add_claims_by_scope)
+                    # This is needed because the token handler uses grant.scope to add scope claim
+                    if hasattr(_grant, 'scope'):
+                        _grant.scope = scope_to_issue
+                    elif hasattr(_grant, 'set'):
+                        try:
+                            _grant.set("scope", scope_to_issue)
+                        except (TypeError, AttributeError):
+                            pass
+                    
+                    # Patch grant's payload_arguments to skip user claims for client credentials
+                    # IdPyOIDC's grant.mint_token() calls payload_arguments() which calls get_user_claims()
+                    # For client credentials, there's no user, so we need to bypass this
+                    # The error "userinfo MUST be defined" happens because IdPyOIDC tries to get user claims
+                    # even though there's no user in client credentials flow
+                    # We need to capture scope_to_issue in the closure so patched_payload_arguments can use it
+                    original_payload_arguments = _grant.payload_arguments
+                    
+                    def patched_payload_arguments(*args, **kwargs):
+                        """Patched payload_arguments that skips user claims for client credentials."""
+                        try:
+                            return original_payload_arguments(*args, **kwargs)
+                        except Exception as e:
+                            # If it's the userinfo configuration error, bypass it for client credentials
+                            # This happens because client credentials has no user, so userinfo claims aren't applicable
+                            # The original payload_arguments tries to call get_user_claims() which fails for client credentials
+                            error_str = str(e)
+                            if "userinfo MUST be defined" in error_str or "ImproperlyConfigured" in error_str:
+                                # For client credentials, we need to build payload without user claims
+                                # Include scope in the payload to ensure it's in the token
+                                # Convert scope list to space-separated string as per JWT scope claim format
+                                scope_str = " ".join(scope_to_issue) if isinstance(scope_to_issue, list) else scope_to_issue
+                                return {
+                                    "sub": client_id,
+                                    "scope": scope_str,  # Explicitly include scope in payload
+                                }
+                            # Re-raise any other exceptions
+                            raise
+                    
+                    _grant.payload_arguments = patched_payload_arguments
+                    
                     access_token = self._mint_token(
                         token_class="access_token",
                         grant=_grant,
                         session_id=_session_info_dict.get("branch_id", branch_id),
                         client_id=client_id,
                         based_on=None,
-                        scope=_allowed,
+                        scope=scope_to_issue,  # Use filtered scope list - this should add scope claim via add_claims_by_scope
                         token_type=token_type,
                     )
                     

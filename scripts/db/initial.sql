@@ -32,9 +32,9 @@ CREATE TABLE users (
 );
 
 -- Create indexes for users table
-CREATE INDEX idx_users_user_id ON users(user_id);
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Create oauth2_clients table
 CREATE TABLE oauth2_clients (
@@ -46,7 +46,12 @@ CREATE TABLE oauth2_clients (
     redirect_uris TEXT[],  -- Array of strings in PostgreSQL
     grant_types TEXT[],
     response_types TEXT[],
-    scopes TEXT[],
+    scopes TEXT[],  -- OAuth2 scopes (what the client CAN DO): data.read, data.write, etc.
+                    -- NOTE: For production, consider a client_scopes join table instead of TEXT[]
+                    -- This provides referential integrity, easier queries, and cleaner revocation
+    metadata JSONB,  -- Custom claims (attributes/constraints): WHO/WHAT the client IS
+                     -- Examples: organization_id, trust_level, tenant_id, env
+                     -- Use client_claims table for structured claims, metadata for simple cases
     logo_uri VARCHAR(512),
     tos_uri VARCHAR(512),
     policy_uri VARCHAR(512),
@@ -56,7 +61,34 @@ CREATE TABLE oauth2_clients (
 );
 
 -- Create indexes for oauth2_clients table
-CREATE INDEX idx_oauth2_clients_client_id ON oauth2_clients(client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth2_clients_client_id ON oauth2_clients(client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth2_clients_metadata ON oauth2_clients USING GIN (metadata);
+
+-- Create client_claims table for structured client-level claims
+-- OAuth2 Best Practice: Claims are attributes (constraints), NOT permissions
+-- Claims should be independent of scopes - they describe WHO/WHAT the client IS, not what it can DO
+-- This is useful when you need many structured claims (organization_id, client_role, tier, etc.)
+-- For simple cases, use the metadata JSONB column in oauth2_clients instead
+--
+-- IMPORTANT: Do NOT create a scope_claim table - this is an anti-pattern
+-- Scopes should never generate claims. Claims come from client identity, not scope membership.
+-- Scope = permission to act, Claim = constraint on how/where/for whom
+CREATE TABLE IF NOT EXISTS client_claims (
+    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    client_id VARCHAR(255) NOT NULL,
+    claim_name VARCHAR(255) NOT NULL,
+    claim_value TEXT NOT NULL,
+    claim_type VARCHAR(50),  -- Optional: 'string', 'number', 'boolean', 'json'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES oauth2_clients(client_id) ON DELETE CASCADE,
+    UNIQUE(client_id, claim_name)
+);
+
+-- Create indexes for client_claims table
+CREATE INDEX IF NOT EXISTS idx_client_claims_client_id ON client_claims(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_claims_claim_name ON client_claims(claim_name);
 
 -- Create resources table
 CREATE TABLE resources (
@@ -72,8 +104,8 @@ CREATE TABLE resources (
 );
 
 -- Create indexes for resources table
-CREATE INDEX idx_resources_resource_id ON resources(resource_id);
-CREATE INDEX idx_resources_resource_uri ON resources(resource_uri);
+CREATE INDEX IF NOT EXISTS idx_resources_resource_id ON resources(resource_id);
+CREATE INDEX IF NOT EXISTS idx_resources_resource_uri ON resources(resource_uri);
 
 -- Create updated_at trigger function (if not exists)
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -119,10 +151,15 @@ CREATE TRIGGER update_resources_updated_at
 -- - Test scopes
 
 -- Insert test scopes
+-- Best Practice: Use resource-oriented scopes (data.read, data.write) instead of generic verbs
+-- This follows OAuth2 best practices for microservices and avoids scope explosion
 INSERT INTO scopes (scope_name, description, is_active) VALUES
     ('openid', 'OpenID Connect scope', TRUE),
-    ('read', 'Read access to resources', TRUE),
-    ('write', 'Write access to resources', TRUE)
+    ('data.read', 'Read access to data API (resource-oriented scope)', TRUE),
+    ('data.write', 'Write access to data API (resource-oriented scope)', TRUE),
+    ('read', 'Legacy read scope (deprecated, use data.read)', TRUE),  -- Keep for backward compatibility
+    ('write', 'Legacy write scope (deprecated, use data.write)', TRUE),  -- Keep for backward compatibility
+    ('admin', 'Administrative access to resources', TRUE)
 ON CONFLICT (scope_name) DO NOTHING;
 
 -- Insert test user (password: password123)
@@ -134,7 +171,37 @@ ON CONFLICT (id) DO NOTHING;
 -- Insert test OAuth2 client for client credentials flow
 -- Client ID: test_client
 -- Client Secret: test_secret
--- This client can use client_credentials grant type to get access tokens
+-- This client has data.read scope but not data.write (demonstrates read-only access)
+-- Metadata contains claims: trust_level='partner' (not 'internal', so cannot write)
+INSERT INTO oauth2_clients (
+    id,
+    client_id,
+    client_secret,
+    client_name,
+    redirect_uris,
+    grant_types,
+    response_types,
+    scopes,
+    metadata,
+    is_active
+) VALUES (
+    '660e8400-e29b-41d4-a716-446655440000',
+    'test_client',
+    'test_secret',
+    'Test Client Application (Read-Only)',
+    ARRAY['http://localhost:9000/callback'],
+    ARRAY['authorization_code', 'client_credentials', 'refresh_token'],
+    ARRAY['code'],
+    ARRAY['openid', 'data.read'],  -- Resource-oriented scope: can read data
+    '{"trust_level": "partner", "tenant_id": "t-123", "env": "prod"}'::jsonb,  -- Claims: constraints on permissions
+    TRUE
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Insert SPA client for authorization code flow
+-- Client ID: spa_client
+-- No client secret (public client)
+-- This client uses authorization_code flow with PKCE for SPA
 INSERT INTO oauth2_clients (
     id,
     client_id,
@@ -146,14 +213,14 @@ INSERT INTO oauth2_clients (
     scopes,
     is_active
 ) VALUES (
-    '660e8400-e29b-41d4-a716-446655440000',
-    'test_client',
-    'test_secret',
-    'Test Client Application',
-    ARRAY['http://localhost:9000/callback'],
-    ARRAY['authorization_code', 'client_credentials', 'refresh_token'],
+    '880e8400-e29b-41d4-a716-446655440000',
+    'spa_client',
+    '',  -- Public client, no secret required
+    'SPA Client Application',
+    ARRAY['http://localhost:3000/callback'],
+    ARRAY['authorization_code', 'refresh_token'],
     ARRAY['code'],
-    ARRAY['openid', 'read', 'write'],
+    ARRAY['openid', 'read', 'write', 'admin'],
     TRUE
 )
 ON CONFLICT (id) DO NOTHING;

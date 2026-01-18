@@ -326,13 +326,24 @@ async def authorization_endpoint(request: Request) -> Response:
             )
         
         # Prepare request data for IdPyOIDC
-        # Prepare request data for IdPyOIDC
         # Authorization endpoint uses GET with query parameters
         # IdPyOIDC parse_request expects:
         # - request: dict (query params) or str (body)
         # - http_info: dict with headers, url, cookies
         request_data = dict(request.query_params)
         http_info = _build_http_info(request)
+        
+        # Scope filtering is handled by IdPyOIDC based on:
+        # 1. Client's allowed scopes (from oauth2_clients.scopes via CDB)
+        # 2. Requested scopes in the authorization request
+        # IdPyOIDC automatically filters requested scopes to only include
+        # scopes that the client is allowed to request (from client metadata)
+        # 
+        # For user-specific scope restrictions, implement by:
+        # - Adding user_scopes table or user metadata for user permissions
+        # - Querying user permissions from database
+        # - Filtering scopes based on user + client permissions
+        # This should be done here before calling IdPyOIDC, if needed
         
         # Parse request using IdPyOIDC endpoint
         parsed_request = endpoint.parse_request(request_data, http_info=http_info)

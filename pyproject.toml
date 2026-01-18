@@ -1,3 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auth-server"
+version = "0.1.0"
+description = "OAuth2/OIDC Authorization Server"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = ["apps", "libs", "test_clients"]
+
 [tool.black]
 line-length = 120
 target-version = ['py311']
