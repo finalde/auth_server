@@ -1,0 +1,5 @@
+auth_server_url: "http://localhost:8000"
+cors:
+  allow_origins:
+    - "http://localhost:3000"
+

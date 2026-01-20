@@ -14,7 +14,12 @@ Usage:
     python test_clients/resource_server/main.py
 """
 
+import os
+from typing import Any, Dict
+
+import yaml
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from libs.infrastructure.authorization import Authorize, configure_authorization
@@ -26,7 +31,38 @@ app: FastAPI = FastAPI(
     version="1.0.0",
 )
 
-AUTH_SERVER_URL: str = "http://localhost:8000"
+def _load_config() -> Dict[str, Any]:
+  """Load resource server config from YAML file."""
+  config_path = os.path.join(os.path.dirname(__file__), "config.yml")
+  try:
+      with open(config_path, "r", encoding="utf-8") as f:
+          return yaml.safe_load(f) or {}
+  except FileNotFoundError:
+      # Reasonable defaults for local dev
+      return {
+          "auth_server_url": "http://localhost:8000",
+          "cors": {"allow_origins": ["http://localhost:3000"]},
+      }
+
+
+_config = _load_config()
+_cors_cfg = _config.get("cors", {}) or {}
+_allowed_origins = _cors_cfg.get("allow_origins", [])
+
+_server_cfg = _config.get("server", {}) or {}
+SERVER_HOST: str = _server_cfg.get("host", "0.0.0.0")
+SERVER_PORT: int = int(_server_cfg.get("port", 8001))
+
+AUTH_SERVER_URL: str = _config.get("auth_server_url", "http://localhost:8000")
+
+# Allow SPA to call this resource server – origins are now configuration-driven (no hard-coded URLs)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[str(o) for o in _allowed_origins],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
@@ -148,4 +184,5 @@ async def protected_write_resource(request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)

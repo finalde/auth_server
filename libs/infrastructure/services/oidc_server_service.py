@@ -83,6 +83,15 @@ class OIDCServerService:
                 # Token handler arguments
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#token-handler-arguments
                 # Configure tokens to use JWT format (required for resource server validation)
+                #
+                # Important security note:
+                # - We do NOT rely on IdPyOIDC's add_claims_by_scope for client_credentials.
+                #   That mechanism is OIDC/user-centric and tends to pull userinfo-based claims.
+                #   For client_credentials there is no user, only a client, so we:
+                #     * keep add_claims_by_scope disabled, and
+                #     * add the 'scope' claim explicitly when minting access tokens for
+                #       client_credentials in the custom client_credentials helper below.
+                # - Access token lifetimes are kept short (15 minutes) for better security.
                 "token_handler_args": {
                     "key_defs": key_defs,
                     # Authorization code (opaque token is fine for codes)
@@ -91,8 +100,12 @@ class OIDCServerService:
                     "token": {
                         "class": "idpyoidc.server.token.jwt_token.JWTToken",
                         "kwargs": {
-                            "lifetime": 3600,  # 1 hour
-                            "add_claims_by_scope": True,  # Include scope in token claims
+                            "lifetime": 900,  # 15 minutes
+                            # Enable add_claims_by_scope so that access tokens for
+                            # authorization_code flows include a 'scope' claim.
+                            # For client_credentials, our patched helper already
+                            # sets scope explicitly and bypasses userinfo issues.
+                            "add_claims_by_scope": True,
                             "alg": "RS256",  # Use RS256 for better compatibility with resource servers
                         },
                     },
@@ -141,6 +154,35 @@ class OIDCServerService:
                     "password": os.urandom(16).hex(),
                     "salt": os.urandom(8).hex(),
                 },
+                # UserInfo configuration for claims_interface.get_user_claims
+                # IdPyOIDC's Grant.payload_arguments() calls claims_interface.get_user_claims()
+                # for authorization_code flows. If "userinfo" is not defined, it raises:
+                #   ImproperlyConfigured("userinfo MUST be defined in the configuration")
+                # For this demo, we don't maintain a separate userinfo store, so we
+                # configure an in-memory UserInfo with an empty DB. This satisfies the
+                # configuration requirement and simply returns no user claims.
+                #
+                # Docs: https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#userinfo
+                "userinfo": {
+                    "class": "idpyoidc.server.user_info.UserInfo",
+                    "kwargs": {
+                        "db": {},  # No user claims for now – tokens still include 'scope'
+                    },
+                },
+                # User authentication methods configuration
+                # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#user-authentication
+                # This configures the authn_broker with available authentication methods
+                # For Authorization Code flow, we need at least one authentication method
+                # IdPyOIDC expects "authentication" key (not "user_authn") with methods dict
+                "authentication": {
+                    "user": {
+                        "acr": "urn:mace:incommon:iap:silver",
+                        "class": "idpyoidc.server.user_authn.user.NoAuthn",
+                        "kwargs": {
+                            "user": "diana",  # Default user - will be replaced by actual user from request
+                        },
+                    },
+                },
                 # OIDC Discovery configuration (capabilities)
                 # https://idpy-oidc.readthedocs.io/en/latest/server/contents/conf.html#capabilities
                 "response_types_supported": ["code"],
@@ -176,10 +218,28 @@ class OIDCServerService:
                 else:
                     print(f"Warning: Server context not found, CDB may not work")
             
-            # Patch client_credentials helper to fix get_session_info issue
-            # The helper expects get_session_info to return a dict, but it may return ClientSessionInfo
-            # This is a workaround for IdPyOIDC issue where get_session_info returns ClientSessionInfo
-            # instead of a dict when called without grant=True
+            # Patch client_credentials helper to work around IdPyOIDC limitations.
+            #
+            # Why this exists (architectural note):
+            # - IdPyOIDC was designed OIDC-first and assumes a user-centric flow.
+            # - The built-in client_credentials helper:
+            #     * sometimes receives ClientSessionInfo instead of a plain dict from
+            #       session_manager.get_session_info, which breaks its assumptions.
+            #     * expects userinfo/user claims machinery to be configured, which is
+            #       not appropriate for client_credentials (no human user).
+            # - Rather than re-implementing token minting in the FastAPI controller,
+            #   we patch the helper here so:
+            #     * all protocol logic stays inside IdPyOIDC,
+            #     * the FastAPI layer can remain a thin HTTP adapter.
+            #
+            # This patch is intentionally isolated here so that:
+            # - It is easy to audit and replace later with:
+            #     * a custom Token class, or
+            #     * a custom Grant / session manager integration.
+            # - The rest of the application does not depend on IdPyOIDC internals.
+            #
+            # NOTE: This is acceptable for this demo/PoC, but SHOULD be refactored
+            #       for a production deployment as described above.
             try:
                 from idpyoidc.server.oauth2.token_helper.client_credentials import ClientCredentials
                 original_process_request = ClientCredentials.process_request

@@ -9,6 +9,7 @@ For IdPyOIDC integration details, see:
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -23,6 +24,19 @@ app: FastAPI = FastAPI(
     title="Auth Server API",
     description="OpenID Connect Provider API",
     version="1.0.0",
+)
+
+# CORS configuration – read allowed origins from config.yml (no hard-coded URLs)
+_config = get_config()
+_allowed_origins = _config.get_cors_allow_origins()
+
+app.add_middleware(
+    CORSMiddleware,
+    # If no origins are configured, CORS is effectively disabled
+    allow_origins=_allowed_origins or [],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers

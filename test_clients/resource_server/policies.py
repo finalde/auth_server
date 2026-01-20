@@ -45,9 +45,13 @@ class ReadScopePolicy(Policy):
         """
         # Extract scopes from token (scope is space-separated string per RFC 6749)
         scopes = claims.get("scope", "").split() if claims.get("scope") else []
+
+        # Debug: print scopes for troubleshooting
+        print(f"ReadScopePolicy: scopes in token = {scopes}")
         
         # Check scope: Must have "data.read" (permission to act)
-        if "data.read" not in scopes:
+        # For backward compatibility, also accept plain "read" if present.
+        if "data.read" not in scopes and "read" not in scopes:
             return PolicyResult(
                 allowed=False,
                 reason="Insufficient permissions: 'data.read' scope required",

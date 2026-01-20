@@ -64,7 +64,7 @@ function Home() {
       response_type: 'code',
       client_id: CLIENT_ID,
       redirect_uri: REDIRECT_URI,
-      scope: 'openid read write admin',
+      scope: 'openid data.read data.write admin',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
       state: 'random_state_' + Math.random().toString(36).substring(7)
@@ -258,8 +258,14 @@ function Callback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [exchanged, setExchanged] = useState(false);
 
   useEffect(() => {
+    // Prevent double execution (e.g. React StrictMode in dev)
+    if (exchanged) {
+      return;
+    }
+
     const code = searchParams.get('code');
     const errorParam = searchParams.get('error');
     
@@ -304,16 +310,21 @@ function Callback() {
           localStorage.setItem('refresh_token', response.data.refresh_token);
         }
         localStorage.removeItem('code_verifier');
+
+        // Mark as exchanged to avoid duplicate calls (e.g. StrictMode)
+        setExchanged(true);
         
         // Redirect to home
         navigate('/');
       } catch (err: any) {
+        // Log full error for debugging
+        console.error('Token exchange error:', err?.response?.data || err);
         setError(`Token exchange failed: ${err.response?.data?.error || err.message}`);
       }
     };
     
     exchangeToken();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, exchanged]);
 
   if (error) {
     return (

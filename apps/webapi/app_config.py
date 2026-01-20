@@ -85,3 +85,21 @@ class WebAPIConfig(IAppConfig):
     def get_server_port(self) -> int:
         """Get server port."""
         return self._config.get("server", {}).get("port", 8000)
+
+    def get_cors_allow_origins(self) -> list[str]:
+        """Get list of allowed CORS origins for the WebAPI.
+
+        Config structure:
+        cors:
+          allow_origins:
+            - "http://localhost:3000"
+            - "http://localhost:3002"
+        """
+        cors_cfg: dict = self._config.get("cors", {})
+        origins = cors_cfg.get("allow_origins", [])
+        # Ensure we always return a list of strings
+        if isinstance(origins, list):
+            return [str(o) for o in origins]
+        if isinstance(origins, str):
+            return [origins]
+        return []

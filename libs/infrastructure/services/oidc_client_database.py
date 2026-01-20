@@ -46,6 +46,38 @@ class OIDCClientDatabase:
         """Dict-like get method: cdb.get(client_id, default)."""
         result = self._lookup(client_id)
         return result if result is not None else default
+
+    # --- Minimal mapping / dict-like API for IdPyOIDC compatibility ---
+
+    def keys(self):
+        """Return known client_ids (dict-like API).
+
+        IdPyOIDC sometimes expects the CDB to behave like a dict and call .keys().
+        For this implementation we only expose keys that have been loaded into the
+        in-memory cache so far. This is sufficient for IdPyOIDC's typical usage,
+        where direct lookups (cdb[client_id]) are the primary operation.
+        """
+        return self._cache.keys()
+
+    def items(self):
+        """Return (client_id, client_info) pairs for cached clients."""
+        return self._cache.items()
+
+    def values(self):
+        """Return client_info values for cached clients."""
+        return self._cache.values()
+
+    def __contains__(self, client_id: object) -> bool:
+        """Support `client_id in cdb` checks."""
+        return isinstance(client_id, str) and (client_id in self._cache or self._lookup(client_id) is not None)
+
+    def __iter__(self):
+        """Iterate over cached client_ids (dict-like API)."""
+        return iter(self._cache)
+
+    def __len__(self) -> int:
+        """Number of cached clients."""
+        return len(self._cache)
     
     def _lookup(self, client_id: str) -> Optional[Dict[str, Any]]:
         """Internal lookup method."""

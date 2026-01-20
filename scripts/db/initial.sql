@@ -220,7 +220,7 @@ INSERT INTO oauth2_clients (
     ARRAY['http://localhost:3000/callback'],
     ARRAY['authorization_code', 'refresh_token'],
     ARRAY['code'],
-    ARRAY['openid', 'read', 'write', 'admin'],
+    ARRAY['openid', 'data.read', 'data.write', 'read', 'write', 'admin'],  -- Include both resource-oriented and legacy scopes
     TRUE
 )
 ON CONFLICT (id) DO NOTHING;

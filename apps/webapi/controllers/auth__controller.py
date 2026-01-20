@@ -12,6 +12,7 @@ IdPyOIDC Documentation:
 
 from typing import Any, Dict, Optional
 
+import json
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import JSONResponse, Response, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -331,6 +332,12 @@ async def authorization_endpoint(request: Request) -> Response:
         # - request: dict (query params) or str (body)
         # - http_info: dict with headers, url, cookies
         request_data = dict(request.query_params)
+        
+        # IdPyOIDC may expect response_mode parameter (defaults to "query" for authorization code)
+        # If not provided, set default to avoid KeyError
+        if "response_mode" not in request_data:
+            request_data["response_mode"] = "query"
+        
         http_info = _build_http_info(request)
         
         # Scope filtering is handled by IdPyOIDC based on:
@@ -349,15 +356,239 @@ async def authorization_endpoint(request: Request) -> Response:
         parsed_request = endpoint.parse_request(request_data, http_info=http_info)
         
         # Process and return response
+        # IdPyOIDC process_request may return:
+        # - dict: JSON response (error cases)
+        # - Response object: HTTP response (redirects, HTML forms, etc.)
+        # - Message object (like AuthorizationErrorResponse): Needs to be converted
         resp = endpoint.process_request(parsed_request)
         
-        if isinstance(resp, dict):
-            return JSONResponse(content=resp)
+        # Handle different response types from IdPyOIDC
+        # IMPORTANT: Check for Message objects FIRST (they may be dict-like)
+        # AuthorizationErrorResponse and other Message objects may inherit from dict
+        # but are not JSON serializable directly - they need conversion
+        # Check by class name to catch IdPyOIDC Message types
+        resp_class_name = type(resp).__name__
+        resp_type = type(resp)
+        
+        # Check if it's a dict subclass (not a plain dict) - these are likely IdPyOIDC Message objects
+        # Dict subclasses can't be JSON serialized directly - they need conversion
+        is_dict_subclass = isinstance(resp, dict) and resp_type is not dict
+        
+        # Check if class name suggests it's an IdPyOIDC Message (Response, ErrorResponse, etc.)
+        is_likely_message = (
+            'Response' in resp_class_name or 
+            'ErrorResponse' in resp_class_name or
+            'AuthorizationResponse' in resp_class_name
+        )
+        
+        # CRITICAL: If it's a dict subclass OR has Response in name, it needs special handling
+        # This catches AuthorizationErrorResponse and similar IdPyOIDC Message objects
+        needs_conversion = is_dict_subclass or is_likely_message
+        
+        # Try to convert IdPyOIDC Message objects to dict
+        if hasattr(resp, 'to_dict'):
+            # Handle Message objects (like AuthorizationErrorResponse, AuthorizationResponse, etc.)
+            # IdPyOIDC Message objects have to_dict() method
+            resp_dict = resp.to_dict()
+            # If it's an error response, we should redirect with error parameters
+            if "error" in resp_dict:
+                # Log detailed error for debugging
+                print(f"Authorization endpoint error (to_dict): {resp_dict}")
+                # Extract redirect_uri and state from original request
+                redirect_uri = request_data.get("redirect_uri")
+                state = request_data.get("state")
+                if redirect_uri:
+                    # Build error redirect URL per OAuth2 spec (RFC 6749 Section 4.1.2.1)
+                    from urllib.parse import urlencode
+                    error_params = {"error": resp_dict.get("error")}
+                    if "error_description" in resp_dict:
+                        error_params["error_description"] = resp_dict["error_description"]
+                    if state:
+                        error_params["state"] = state
+                    redirect_url = f"{redirect_uri}?{urlencode(error_params)}"
+                    return RedirectResponse(url=redirect_url, status_code=302)
+                # If no redirect_uri, return JSON error
+                return JSONResponse(
+                    status_code=400,
+                    content=resp_dict
+                )
+            # Non-error response - should be a success redirect with code
+            redirect_uri = request_data.get("redirect_uri")
+            if redirect_uri and "code" in resp_dict:
+                from urllib.parse import urlencode
+                success_params = {"code": resp_dict["code"]}
+                if "state" in resp_dict:
+                    success_params["state"] = resp_dict["state"]
+                redirect_url = f"{redirect_uri}?{urlencode(success_params)}"
+                return RedirectResponse(url=redirect_url, status_code=302)
+            # Fallback: return as JSON
+            return JSONResponse(content=resp_dict)
+        elif needs_conversion:
+            # IdPyOIDC Message type that's dict-like but not JSON serializable
+            # Try to convert via __dict__ or manual conversion
+            resp_dict = None
+            try:
+                # Try to_dict() first (might exist but not detected by hasattr)
+                if hasattr(type(resp), 'to_dict') or hasattr(resp, 'to_dict'):
+                    try:
+                        resp_dict = resp.to_dict()
+                    except (AttributeError, TypeError):
+                        pass
+                
+                # If to_dict() didn't work, try converting from dict directly
+                if resp_dict is None and isinstance(resp, dict):
+                    # For dict subclasses, use dict() constructor or dict comprehension
+                    # This creates a plain dict from the subclass
+                    try:
+                        resp_dict = {k: v for k, v in resp.items()}
+                    except (AttributeError, TypeError):
+                        # Fallback: try direct dict() constructor
+                        try:
+                            resp_dict = dict(resp)
+                        except (TypeError, ValueError):
+                            pass
+                
+                # If still None, try __dict__
+                if resp_dict is None and hasattr(resp, '__dict__'):
+                    resp_dict = {k: v for k, v in resp.__dict__.items() if not k.startswith('_')}
+                
+                # If still None, try to get common Message attributes directly
+                if resp_dict is None:
+                    resp_dict = {}
+                    for key in ['error', 'error_description', 'error_uri', 'state', 'code']:
+                        if hasattr(resp, key):
+                            value = getattr(resp, key)
+                            if value is not None:
+                                resp_dict[key] = value
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to convert {resp_class_name} to dict: {e}")
+                resp_dict = {"error": "server_error", "error_description": str(e)}
+            
+            # Handle error response
+            if "error" in resp_dict:
+                # Log detailed error for debugging
+                print(f"Authorization endpoint error (needs_conversion): {resp_dict}")
+                redirect_uri = request_data.get("redirect_uri")
+                if redirect_uri:
+                    from urllib.parse import urlencode
+                    error_params = {"error": resp_dict.get("error")}
+                    if "error_description" in resp_dict:
+                        error_params["error_description"] = resp_dict["error_description"]
+                    if request_data.get("state"):
+                        error_params["state"] = request_data["state"]
+                    redirect_url = f"{redirect_uri}?{urlencode(error_params)}"
+                    return RedirectResponse(url=redirect_uri if '?' not in redirect_uri else redirect_url, status_code=302)
+                return JSONResponse(status_code=400, content=resp_dict)
+            # Handle success response
+            redirect_uri = request_data.get("redirect_uri")
+            if redirect_uri and "code" in resp_dict:
+                from urllib.parse import urlencode
+                success_params = {"code": resp_dict["code"]}
+                if "state" in resp_dict:
+                    success_params["state"] = resp_dict["state"]
+                redirect_url = f"{redirect_uri}?{urlencode(success_params)}"
+                return RedirectResponse(url=redirect_url, status_code=302)
+            return JSONResponse(content=resp_dict)
+        elif isinstance(resp, dict) and "response_args" in resp and "return_uri" in resp:
+            # IdPyOIDC authorization endpoint often returns a dict:
+            # { "response_args": <AuthorizationResponse|AuthorizationErrorResponse>, "return_uri": "<redirect_uri>" }
+            # This is the canonical structure we should turn into an HTTP redirect for the SPA.
+            response_args = resp.get("response_args")
+            return_uri = resp.get("return_uri")
+
+            # Convert response_args (Message or dict) to a simple dict
+            args_dict: Dict[str, Any]
+            if hasattr(response_args, "to_dict"):
+                args_dict = response_args.to_dict()  # type: ignore[assignment]
+            elif isinstance(response_args, dict):
+                args_dict = dict(response_args)
+            else:
+                # Fallback: best-effort conversion
+                try:
+                    args_dict = {k: v for k, v in response_args.items()}  # type: ignore[attr-defined]
+                except Exception:
+                    args_dict = {"response": str(response_args)}
+
+            # Build redirect URL with query parameters (code/state or error/error_description)
+            from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+
+            parsed = urlparse(return_uri)
+            existing_qs = dict(parse_qsl(parsed.query))
+            merged_qs = {**existing_qs, **args_dict}
+            new_query = urlencode(merged_qs)
+            new_url = urlunparse(parsed._replace(query=new_query))
+
+            return RedirectResponse(url=new_url, status_code=302)
+        elif isinstance(resp, dict):
+            # Any other dict (plain or subclass) - convert to a plain dict first.
+            # If JSON serialization still fails, fall back to a plain text response.
+            try:
+                plain_dict = {k: v for k, v in resp.items()}
+            except Exception:
+                plain_dict = dict(resp)
+
+            try:
+                json.dumps(plain_dict)
+                return JSONResponse(content=plain_dict)
+            except TypeError:
+                return Response(content=str(plain_dict), media_type="text/plain")
+        elif hasattr(resp, 'status_code') and hasattr(resp, 'headers'):
+            # IdPyOIDC Response object - check if it's a redirect
+            if resp.status_code in (302, 303, 307, 308):
+                # Extract redirect URL from Location header
+                location = resp.headers.get("Location")
+                if location:
+                    return RedirectResponse(url=location, status_code=resp.status_code)
+            # Return as-is for other response types
+            return Response(
+                content=resp.message if hasattr(resp, 'message') else str(resp),
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+                media_type=resp.headers.get("Content-Type", "text/html")
+            )
+        elif hasattr(resp, '__dict__'):
+            # Try to convert via __dict__ (less reliable, but fallback for objects without to_dict())
+            resp_dict = {k: v for k, v in resp.__dict__.items() if not k.startswith('_')}
+            # Check if it's an error response
+            if "error" in resp_dict:
+                redirect_uri = request_data.get("redirect_uri")
+                if redirect_uri:
+                    from urllib.parse import urlencode
+                    error_params = {"error": resp_dict.get("error")}
+                    if "error_description" in resp_dict:
+                        error_params["error_description"] = resp_dict["error_description"]
+                    if request_data.get("state"):
+                        error_params["state"] = request_data["state"]
+                    redirect_url = f"{redirect_uri}?{urlencode(error_params)}"
+                    return RedirectResponse(url=redirect_url, status_code=302)
+                return JSONResponse(content=resp_dict)
+            # Non-error - check if it has code for success redirect
+            redirect_uri = request_data.get("redirect_uri")
+            if redirect_uri and "code" in resp_dict:
+                from urllib.parse import urlencode
+                success_params = {"code": resp_dict["code"]}
+                if "state" in resp_dict:
+                    success_params["state"] = resp_dict["state"]
+                redirect_url = f"{redirect_uri}?{urlencode(success_params)}"
+                return RedirectResponse(url=redirect_url, status_code=302)
+            return JSONResponse(content=resp_dict)
         else:
+            # Fallback: convert to string response
             return Response(content=str(resp), media_type="text/html")
     except Exception as e:
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Authorization endpoint error: {str(e)}", exc_info=True)
+        # Return more detailed error for debugging (remove in production)
         return JSONResponse(
-            status_code=500, content={"error": f"Authorization error: {str(e)}"}
+            status_code=500, 
+            content={
+                "error": f"Authorization error: {str(e)}",
+                "error_type": type(e).__name__,
+            }
         )
 
 
