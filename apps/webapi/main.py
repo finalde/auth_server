@@ -14,8 +14,17 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from apps.webapi.controllers import auth__controller
+from apps.webapi.controllers import (
+    oidc_authorization__controller,
+    oidc_discovery__controller,
+    oidc_jwks__controller,
+    oidc_login__controller,
+    oidc_registration__controller,
+    oidc_token__controller,
+    oidc_userinfo__controller,
+)
 from apps.webapi.dependencies import get_config
+from apps.webapi.di_container import get_container
 from apps.webapi.routes import HEALTH, router
 from libs.infrastructure.services.oidc_client_database import create_oidc_cdb
 from libs.infrastructure.services.oidc_server_service import OIDCServerService
@@ -42,9 +51,14 @@ app.add_middleware(
 # Include routers
 app.include_router(router)
 # Well-known endpoints must be at root level per OAuth2/OIDC specification
-app.include_router(auth__controller.well_known_router)
+app.include_router(oidc_discovery__controller.router)
 # Auth endpoints under /api/v1/auth
-app.include_router(auth__controller.router)
+app.include_router(oidc_login__controller.router)
+app.include_router(oidc_authorization__controller.router)
+app.include_router(oidc_token__controller.router)
+app.include_router(oidc_userinfo__controller.router)
+app.include_router(oidc_jwks__controller.router)
+app.include_router(oidc_registration__controller.router)
 
 # Mount static files (if needed)
 # app.mount("/static", StaticFiles(directory="apps/webapi/static"), name="static")
@@ -85,14 +99,18 @@ class OIDCMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Initialize OIDC server on startup
+# Initialize DI container on startup
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Initialize OIDC server on startup.
+    """Initialize DI container and OIDC server on startup.
 
     The IdPyOIDC Server is initialized once at startup and stored in app.state.
     This follows IdPyOIDC patterns where the server is a long-lived singleton.
     """
+    # Initialize DI container (this will load configuration)
+    container = get_container()
+    
+    # Get config from DI container
     config = get_config()
     host: str = config.get_server_host()
     port: int = config.get_server_port()

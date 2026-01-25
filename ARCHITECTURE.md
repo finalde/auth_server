@@ -1,8 +1,12 @@
 # Architecture Documentation
 
+**This is the single source of truth for all architectural decisions, patterns, and conventions.**
+
+**MANDATORY: Always read this document before writing any code.**
+
 ## Project Overview
 
-The auth_server solution follows Domain-Driven Design (DDD), Command Query Responsibility Segregation (CQRS), and Dependency Injection/Inversion of Control (DI/IoC) principles.
+The auth_server solution follows Domain-Driven Design (DDD), Command Query Responsibility Segregation (CQRS), and Dependency Injection/Inversion of Control (DI/IoC) principles using the `dependency-injector` library.
 
 ## Project Structure
 
@@ -97,10 +101,15 @@ React Redux Web UI:
 
 ### 3. Dependency Injection (DI) / IoC
 
-- Use interfaces for all dependencies
-- Register implementations in DI container
-- Dependencies flow inward: Infrastructure → Application → Domain
-- All interfaces defined in common layer
+- **Library**: Use `dependency-injector` library for all DI
+- **No Direct Instantiation**: All services, readers, writers, queries, commands MUST be injected via DI container
+- **Interfaces First**: All dependencies are defined as interfaces in `libs/common/interfaces.py`
+- **Registration**: Services registered in application-specific containers (e.g., `apps/webapi/di_container.py`)
+- **Dependencies Flow Inward**: Infrastructure → Application → Domain
+- **Domain Layer**: NO dependency injection (pure business logic, stateless)
+- **Infrastructure Layer**: Dependencies injected via constructor (database session, etc.)
+- **Application Layer**: All dependencies injected via constructor (readers, writers, mappers)
+- **Application Boundaries**: FastAPI `Depends()` resolves from DI container
 
 ### 4. Layer Dependencies
 
@@ -193,18 +202,210 @@ Value objects should represent meaningful domain concepts that combine multiple 
 
 ## When Adding New Features
 
-1. **Domain Logic**: Add to `libs/domain/` (entities, value objects, domain services)
-2. **Application Logic**: Add to `libs/application/` (commands, queries, mappers)
-3. **Infrastructure**: Add to `libs/infrastructure/` (DAOs, readers, writers, services)
-4. **Interfaces**: Define in `libs/common/interfaces.py`
-5. **Enums**: Add to `libs/common/enums.py`
-6. **Controllers**: Add to `apps/webapi/controllers/` with `_async` suffix
-7. **Route Constants**: Define route paths as constants in route files
+### Step-by-Step Process
+
+1. **Define Interface** (in `libs/common/interfaces.py`):
+   ```python
+   class IClientReader(ABC):
+       @abstractmethod
+       async def get_by_id_async(self, client_id: str) -> Optional[ClientDAO]:
+           pass
+   ```
+
+2. **Implement Infrastructure** (in `libs/infrastructure/db_readers/client__reader.py`):
+   ```python
+   class ClientReader(IClientReader):
+       def __init__(self, session: Session):  # Session injected via DI
+           self._session = session
+   ```
+
+3. **Implement Application Query** (in `libs/application/queries/client_query.py`):
+   ```python
+   class ClientQuery(IClientQuery):
+       def __init__(self, reader: IClientReader, mapper: ClientMapper):  # Both injected via DI
+           self._reader = reader
+           self._mapper = mapper
+   ```
+
+4. **Register in DI Container** (in `apps/webapi/di_container.py`):
+   ```python
+   # Database session (singleton or factory per request)
+   database_session = providers.Factory(create_session, config=app_config)
+   
+   # Infrastructure: Reader
+   client_reader = providers.Factory(
+       ClientReader,
+       session=database_session,
+   )
+   
+   # Application: Mapper (singleton - stateless)
+   client_mapper = providers.Singleton(ClientMapper)
+   
+   # Application: Query
+   client_query = providers.Factory(
+       ClientQuery,
+       reader=client_reader,
+       mapper=client_mapper,
+   )
+   ```
+
+5. **Create FastAPI Dependency** (in `apps/webapi/dependencies.py`):
+   ```python
+   def get_client_query() -> IClientQuery:
+       container = get_container()
+       return container.client_query()
+   ```
+
+6. **Use in Controller** (in `apps/webapi/controllers/clients__controller.py`):
+   ```python
+   @router.get("/")
+   async def get_all_clients_async(
+       query: IClientQuery = Depends(get_client_query),  # Use dependency function
+   ) -> List[ClientDTO]:
+       return await query.get_all_async()
+   ```
+
+### Checklist
+
+- ✅ Interface defined in `libs/common/interfaces.py`
+- ✅ Implementation in appropriate layer (infrastructure/application)
+- ✅ All dependencies injected via constructor (no direct instantiation)
+- ✅ Registered in DI container (`apps/webapi/di_container.py`)
+- ✅ FastAPI dependency function created (`apps/webapi/dependencies.py`)
+- ✅ Controller uses `Depends(dependency_function)` not `Depends(Interface)`
+- ✅ Layer dependencies respected (Domain → Common only, etc.)
+- ✅ Data representation correct (DAO in infrastructure, Entity/ValueObject in domain, DTO in application)
+
+## Dependency Injection (DI) / Inversion of Control (IoC)
+
+### DI Library
+
+This project uses **`dependency-injector`** library for dependency injection. All dependencies MUST be injected through the DI container, never instantiated directly.
+
+### DI Principles
+
+1. **All Dependencies Through DI**: No direct instantiation of services, readers, writers, or mappers
+2. **Interfaces First**: All dependencies are defined as interfaces in `libs/common/interfaces.py`
+3. **Layer-Specific Containers**: Each application (WebAPI, Batch, etc.) has its own DI container configuration
+4. **Registration in Application Layer**: DI container configuration happens at the application boundary
+
+### DI Container Structure
+
+```
+libs/common/
+  └── di_container.py          # Base DI container using dependency-injector
+
+apps/webapi/
+  └── di_container.py          # WebAPI-specific DI container configuration
+```
+
+### Dependency Registration Patterns
+
+#### Singleton Registration
+For services that should have a single instance (configuration, logger, database session):
+```python
+container.singleton(IAppConfig, WebAPIConfig)
+container.singleton(ILogger, Logger)
+```
+
+#### Factory Registration
+For services that need to be created per request (readers, writers, queries):
+```python
+container.factory(IClientReader, ClientReader)
+container.factory(IClientQuery, ClientQuery)
+```
+
+#### Provider Registration
+For complex dependencies that need other services injected:
+```python
+container.provides(IClientQuery)(
+    ClientQuery,
+    reader=Provide[IClientReader],
+    mapper=Provide[ClientMapper]
+)
+```
+
+### Dependency Injection Rules
+
+1. **Domain Layer**: 
+   - NO dependency injection (pure business logic)
+   - Entities, value objects, domain services are stateless or use static methods
+
+2. **Infrastructure Layer**:
+   - Dependencies injected via constructor
+   - Implements interfaces from `common/interfaces.py`
+   - Example: `ClientReader(IClientReader)` receives database session via DI
+
+3. **Application Layer**:
+   - All dependencies injected via constructor
+   - Queries receive readers and mappers via DI
+   - Commands receive writers and mappers via DI
+   - Example: `ClientQuery(reader: IClientReader, mapper: ClientMapper)`
+
+4. **Application Boundaries (WebAPI/WebUI)**:
+   - Controllers receive queries/commands via FastAPI `Depends()`
+   - FastAPI dependencies resolve from DI container
+   - Example: `async def get_clients(query: IClientQuery = Depends(get_client_query))`
+
+### Example: Complete DI Flow
+
+```python
+# 1. Interface defined in libs/common/interfaces.py
+class IClientReader(ABC):
+    @abstractmethod
+    async def get_by_id_async(self, client_id: str) -> Optional[ClientDAO]:
+        pass
+
+# 2. Implementation in libs/infrastructure/db_readers/client__reader.py
+class ClientReader(IClientReader):
+    def __init__(self, session: Session):
+        self._session = session  # Injected via DI
+    
+    async def get_by_id_async(self, client_id: str) -> Optional[ClientDAO]:
+        # Implementation
+
+# 3. Query in libs/application/queries/client_query.py
+class ClientQuery(IClientQuery):
+    def __init__(self, reader: IClientReader, mapper: ClientMapper):
+        self._reader = reader  # Injected via DI
+        self._mapper = mapper  # Injected via DI
+
+# 4. Registration in apps/webapi/di_container.py
+container.factory(IClientReader, ClientReader)
+container.provides(IClientQuery)(
+    ClientQuery,
+    reader=Provide[IClientReader],
+    mapper=Provide[ClientMapper]
+)
+
+# 5. FastAPI dependency in apps/webapi/dependencies.py
+def get_client_query() -> IClientQuery:
+    return container.resolve(IClientQuery)
+
+# 6. Controller usage
+@router.get("/clients")
+async def get_clients(query: IClientQuery = Depends(get_client_query)):
+    return await query.get_all_async()
+```
+
+### CQRS with DI
+
+#### Read Operations (Queries)
+- **Query Interface**: `IClientQuery` in `libs/application/queries/`
+- **Query Implementation**: `ClientQuery` receives `IClientReader` and `Mapper` via DI
+- **Reader Interface**: `IClientReader` in `libs/common/interfaces.py`
+- **Reader Implementation**: `ClientReader` in `libs/infrastructure/db_readers/` receives database session via DI
+
+#### Write Operations (Commands)
+- **Command Object**: `CreateClientCommand` in `libs/application/commands/command_objects/`
+- **Command Handler**: `CreateClientCommandHandler` receives `IClientWriter` and `Mapper` via DI
+- **Writer Interface**: `IClientWriter` in `libs/common/interfaces.py`
+- **Writer Implementation**: `ClientWriter` in `libs/infrastructure/db_writers/` receives database session via DI
 
 ## Technology Stack
 
 - **Backend**: Python, FastAPI, IdPyOIDC
 - **Frontend**: React, Redux
 - **Database**: SQLAlchemy (ORM)
-- **DI Container**: Custom DI container implementation
+- **DI Container**: `dependency-injector` library
 - **Type Checking**: mypy

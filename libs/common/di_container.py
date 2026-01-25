@@ -1,53 +1,30 @@
-"""Dependency injection container (common implementation)."""
+"""Dependency injection container using dependency-injector library.
 
-from typing import Any, Callable, Dict, Optional, Type, TypeVar
+This module provides the base DI container configuration using the dependency-injector
+library. Application-specific containers (e.g., WebAPI) should extend this base container.
 
-T = TypeVar("T")
+NOTE: This file is kept for backward compatibility. New code should use dependency-injector
+containers defined in apps/webapi/di_container.py or similar application-specific containers.
+"""
+
+from dependency_injector import containers, providers
+from typing import Optional
+
+from libs.common.interfaces import IAppConfig, ILogger
 
 
-class DIContainer:
-    """Dependency injection container."""
-
-    def __init__(self) -> None:
-        """Initialize DI container."""
-        self._services: Dict[Type[Any], Any] = {}
-        self._factories: Dict[Type[Any], Callable[[], Any]] = {}
-        self._singletons: Dict[Type[Any], Any] = {}
-
-    def register_singleton(self, service_type: Type[T], instance: T) -> None:
-        """Register a singleton instance."""
-        self._singletons[service_type] = instance
-
-    def register_transient(
-        self, service_type: Type[T], factory: Callable[[], T]
-    ) -> None:
-        """Register a transient factory."""
-        self._factories[service_type] = factory
-
-    def register_instance(self, service_type: Type[T], instance: T) -> None:
-        """Register an instance (same as singleton)."""
-        self.register_singleton(service_type, instance)
-
-    def resolve(self, service_type: Type[T]) -> T:
-        """Resolve a service instance."""
-        # Check singletons first
-        if service_type in self._singletons:
-            return self._singletons[service_type]
-
-        # Check factories
-        if service_type in self._factories:
-            return self._factories[service_type]()
-
-        # Check direct registration
-        if service_type in self._services:
-            return self._services[service_type]
-
-        raise ValueError(f"Service {service_type} is not registered")
-
-    def is_registered(self, service_type: Type[Any]) -> bool:
-        """Check if a service is registered."""
-        return (
-            service_type in self._singletons
-            or service_type in self._factories
-            or service_type in self._services
-        )
+class BaseContainer(containers.DeclarativeContainer):
+    """Base dependency injection container.
+    
+    This container provides common services that can be shared across applications.
+    Application-specific containers should extend this or create their own containers.
+    """
+    
+    # Configuration will be provided by application-specific containers
+    config: Optional[providers.Configuration] = providers.Configuration()
+    
+    # Logger will be provided by application-specific containers
+    logger: Optional[providers.Singleton] = providers.Singleton(
+        # This will be overridden by application containers
+        lambda: None
+    )

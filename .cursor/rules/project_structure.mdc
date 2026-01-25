@@ -127,5 +127,6 @@ Database session management
 
 ## References
 
+- **PRIMARY REFERENCE**: [ARCHITECTURE.md](mdc:ARCHITECTURE.md) - Complete architecture documentation
 - See [architecture_guidelines.mdc](mdc:.cursor/rules/architecture_guidelines.mdc) for architecture rules
 - See [python_coding_standards.mdc](mdc:.cursor/rules/python_coding_standards.mdc) for coding standards

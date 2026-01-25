@@ -37,10 +37,16 @@ alwaysApply: true
    - Queries read state (use query services)
    - Separate command and query models
 
-3. **Dependency Injection**
-   - Use interfaces for all dependencies
-   - Register implementations in DI container
-   - Dependencies flow inward (infrastructure → application → domain)
+3. **Dependency Injection (CRITICAL)**
+   - **Library**: Use `dependency-injector` library - NEVER instantiate services directly
+   - **All Dependencies Through DI**: No direct instantiation of services, readers, writers, queries, commands, or mappers
+   - **Interfaces First**: All dependencies defined as interfaces in `libs/common/interfaces.py`
+   - **Registration**: Services registered in application-specific containers (e.g., `apps/webapi/di_container.py`)
+   - **Domain Layer**: NO dependency injection (pure business logic, stateless)
+   - **Infrastructure Layer**: Dependencies injected via constructor (database session, etc.)
+   - **Application Layer**: All dependencies injected via constructor (readers, writers, mappers)
+   - **Application Boundaries**: FastAPI `Depends()` resolves from DI container
+   - **Dependencies flow inward**: Infrastructure → Application → Domain
 
 4. **Layer Boundaries**
    - Domain layey has no dependencies on infrastructure or application
