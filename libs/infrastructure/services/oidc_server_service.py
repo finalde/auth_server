@@ -217,7 +217,315 @@ class OIDCServerService:
                     print(f"CDB set on server context")
                 else:
                     print(f"Warning: Server context not found, CDB may not work")
-            
+
+            # ------------------------------------------------------------------
+            # Patch Authorization Code flow to bind non-OIDC scopes to the grant
+            # ------------------------------------------------------------------
+            # IdPyOIDC does not automatically propagate custom scopes (like
+            # data.read) into the access token unless grant.scope is set
+            # before mint_token(). We patch Authorization.process_request
+            # to bind scopes to the grant after processing.
+            #
+            # NOTE:
+            # - Per-user scope restrictions are already applied in the FastAPI
+            #   authorization endpoint (authorization_endpoint in auth__controller.py),
+            #   which filters the "scope" parameter based on user_scopes +
+            #   client scopes before calling IdPyOIDC.
+            # - Here we patch process_request to ensure those effective scopes
+            #   are bound to the grant so that add_claims_by_scope can emit a
+            #   proper 'scope' claim in the access token.
+            try:
+                from idpyoidc.server.oidc.authorization import Authorization
+
+                # Patch process_request instead of post_process_request
+                if not hasattr(Authorization, 'process_request'):
+                    raise AttributeError("Authorization.process_request not found")
+                
+                _orig_process = Authorization.process_request
+
+                def patched_process_request(self, request, **kwargs):
+                    """Bind effective scopes from request to grant.scope for code flow.
+                    
+                    IMPORTANT: The FastAPI authorization endpoint already filters scopes
+                    based on user permissions (user_scopes table) and client permissions.
+                    The request.scope here is already the filtered/effective scope.
+                    We just need to bind it to the grant so the token handler can use it.
+                    """
+                    # Debug: Print what we're receiving
+                    print("=" * 80)
+                    print("🔍 Authorization.process_request PATCH CALLED")
+                    print("=" * 80)
+                    print(f"Request scope: {request.get('scope', 'NOT FOUND')}")
+                    print(f"Request client_id: {request.get('client_id', 'NOT FOUND')}")
+                    
+                    # Call original implementation first
+                    response = _orig_process(self, request, **kwargs)
+                    
+                    print(f"Response type: {type(response)}")
+                    print(f"Response: {response}")
+
+                    try:
+                        context = self.upstream_get("context")
+                        session_manager = context.session_manager
+
+                        # Response might be a dict with 'session_id' (not 'sid') or 'response_args'
+                        sid = None
+                        if isinstance(response, dict):
+                            # IdPyOIDC returns 'session_id' in the response dict
+                            sid = response.get("session_id") or response.get("sid")
+                            if not sid and "response_args" in response:
+                                response_args = response.get("response_args")
+                                if hasattr(response_args, 'to_dict'):
+                                    resp_dict = response_args.to_dict()
+                                    sid = resp_dict.get("session_id") or resp_dict.get("sid")
+                                elif isinstance(response_args, dict):
+                                    sid = response_args.get("session_id") or response_args.get("sid")
+                        else:
+                            # Try as attribute - check both session_id and sid
+                            sid = getattr(response, 'session_id', None) if hasattr(response, 'session_id') else None
+                            if not sid:
+                                sid = getattr(response, 'sid', None) if hasattr(response, 'sid') else None
+                            
+                            # Try to_dict if it's a Message object
+                            if not sid and hasattr(response, 'to_dict'):
+                                resp_dict = response.to_dict()
+                                sid = resp_dict.get("session_id") or resp_dict.get("sid")
+                        
+                        print(f"Extracted sid: {sid}")
+                        
+                        if not sid:
+                            print("WARNING: Could not extract sid from response, cannot bind grant.scope")
+                            return response
+
+                        session_info = session_manager.get_session_info(sid, grant=True)
+                        print(f"Session info type: {type(session_info)}")
+                        print(f"Session info keys: {session_info.keys() if isinstance(session_info, dict) else 'N/A'}")
+                        
+                        grant = session_info.get("grant")
+                        if not grant:
+                            print("WARNING: No grant found in session_info")
+                            return response
+                        
+                        print(f"Grant type: {type(grant)}")
+                        print(f"Grant has 'scope' attr: {hasattr(grant, 'scope')}")
+                        if hasattr(grant, 'scope'):
+                            print(f"Grant.scope BEFORE binding: {grant.scope}")
+
+                        # Get scope from request - this is already filtered by FastAPI endpoint
+                        # (user_scopes + client_allowed_scopes intersection)
+                        requested_scope = request.get("scope", "")
+                        print(f"Requested scope from request: {requested_scope} (type: {type(requested_scope)})")
+                        
+                        if isinstance(requested_scope, list):
+                            final_scopes = requested_scope
+                        elif isinstance(requested_scope, str):
+                            final_scopes = requested_scope.split() if requested_scope else []
+                        else:
+                            final_scopes = []
+                        
+                        print(f"Final scopes to bind: {final_scopes}")
+
+                        # If no scope in request, try to get from grant (fallback)
+                        if not final_scopes:
+                            if hasattr(grant, 'scope'):
+                                existing_scope = grant.scope
+                                if isinstance(existing_scope, list):
+                                    final_scopes = existing_scope
+                                elif isinstance(existing_scope, str):
+                                    final_scopes = existing_scope.split() if existing_scope else []
+                            elif hasattr(grant, 'get'):
+                                try:
+                                    existing_scope = grant.get("scope")
+                                    if existing_scope:
+                                        if isinstance(existing_scope, list):
+                                            final_scopes = existing_scope
+                                        elif isinstance(existing_scope, str):
+                                            final_scopes = existing_scope.split() if existing_scope else []
+                                except Exception:
+                                    pass
+
+                        # Bind scopes to grant so access tokens minted from this grant
+                        # will carry the correct scope claim via add_claims_by_scope.
+                        # IdPyOIDC's token handler may expect scope as either a list or
+                        # space-separated string. We'll try both formats to ensure compatibility.
+                        if final_scopes:
+                            client_id = request.get("client_id")
+                            
+                            # Try setting as list first (most common format)
+                            try:
+                                grant.scope = final_scopes
+                                scope_set_as = "list"
+                            except Exception:
+                                try:
+                                    grant.set("scope", final_scopes)  # type: ignore[attr-defined]
+                                    scope_set_as = "list (via set())"
+                                except Exception:
+                                    # If list doesn't work, try space-separated string
+                                    try:
+                                        scope_str = " ".join(final_scopes)
+                                        grant.scope = scope_str
+                                        scope_set_as = "string"
+                                    except Exception:
+                                        try:
+                                            grant.set("scope", " ".join(final_scopes))  # type: ignore[attr-defined]
+                                            scope_set_as = "string (via set())"
+                                        except Exception:
+                                            scope_set_as = "FAILED"
+                                            print(f"ERROR: Could not set grant.scope for client {client_id}")
+
+                            # Debug log to make it clear what scopes are bound
+                            print(
+                                "Authorization grant scope debug:",
+                                {
+                                    "client_id": client_id,
+                                    "request_scope": requested_scope,
+                                    "final_scopes_list": final_scopes,
+                                    "final_scopes_string": " ".join(final_scopes),
+                                    "scope_set_as": scope_set_as,
+                                    "grant_scope_after_binding": getattr(grant, 'scope', 'N/A'),
+                                    "grant_scope_type": type(getattr(grant, 'scope', None)).__name__,
+                                },
+                            )
+                    except Exception as e:  # pragma: no cover - defensive
+                        # We never want this patch to break the auth flow;
+                        # log and continue with original response.
+                        print(f"Warning: patched_process_request failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                    return response
+
+                Authorization.process_request = patched_process_request
+                print("Patched Authorization.process_request to bind grant.scope for code flow")
+            except Exception as e:
+                print(f"Warning: Could not patch Authorization.post_process_request: {e}")
+
+            # ------------------------------------------------------------------
+            # Patch JWTToken to explicitly add scope claim from grant.scope
+            # ------------------------------------------------------------------
+            # IdPyOIDC's add_claims_by_scope might not add the 'scope' claim itself,
+            # only claims defined for specific scopes. We patch __call__ method which
+            # is called when minting tokens.
+            try:
+                from idpyoidc.server.token.jwt_token import JWTToken
+
+                # Patch __call__ method which is used when minting tokens
+                if not hasattr(JWTToken, '__call__'):
+                    raise AttributeError("JWTToken.__call__ not found")
+                
+                _orig_call = JWTToken.__call__
+
+                def patched_jwt_call(self, *args, **kwargs):
+                    """Ensure scope claim is explicitly added to token payload."""
+                    # Debug: Print when called
+                    print("=" * 80)
+                    print("🔍 JWTToken.__call__ PATCH CALLED")
+                    print(f"token_class: {self.token_class}")
+                    print(f"args: {args}")
+                    print(f"kwargs: {kwargs}")
+                    
+                    # Only patch for access tokens (not ID tokens, refresh tokens, etc.)
+                    if self.token_class != "access_token":
+                        print(f"Skipping - not access_token (token_class: {self.token_class})")
+                        return _orig_call(self, *args, **kwargs)
+                    
+                    # Try to get session_id and client_id from kwargs or args
+                    session_id = kwargs.get("session_id") or (args[0] if args else None)
+                    client_id = kwargs.get("client_id") or (args[1] if len(args) > 1 else None)
+                    scope_param = kwargs.get("scope")
+                    
+                    print(f"session_id: {session_id}")
+                    print(f"client_id: {client_id}")
+                    print(f"scope in kwargs: {scope_param}")
+                    
+                    # Get grant from session to read scope and ensure it's passed to mint_token
+                    try:
+                        context = self.upstream_get("context")
+                        session_manager = context.session_manager
+                        
+                        if session_id:
+                            # Get session info with grant
+                            session_info = session_manager.get_session_info(session_id, grant=True)
+                            grant = session_info.get("grant")
+                            
+                            if grant:
+                                # Get scope from grant
+                                grant_scope = None
+                                if hasattr(grant, 'scope'):
+                                    grant_scope = grant.scope
+                                elif hasattr(grant, 'get'):
+                                    try:
+                                        grant_scope = grant.get("scope")
+                                    except Exception:
+                                        pass
+                                
+                                print(f"Grant scope: {grant_scope}")
+                                
+                                # If grant has scope, ensure it's passed to mint_token via kwargs
+                                if grant_scope:
+                                    # Convert to list if it's a string
+                                    if isinstance(grant_scope, str):
+                                        scope_list = grant_scope.split() if grant_scope else []
+                                    elif isinstance(grant_scope, list):
+                                        scope_list = grant_scope
+                                    else:
+                                        scope_list = []
+                                    
+                                    # Add scope to kwargs so it's used when minting
+                                    if scope_list:
+                                        kwargs["scope"] = scope_list
+                                        print(f"Added scope to kwargs: {scope_list}")
+                                        
+                                        # Also try to set it on the grant if not already set
+                                        if hasattr(grant, 'scope') and grant.scope != scope_list:
+                                            try:
+                                                grant.scope = scope_list
+                                                print(f"Updated grant.scope to: {scope_list}")
+                                            except Exception as e:
+                                                print(f"Could not update grant.scope: {e}")
+                    except Exception as e:
+                        # Don't break token issuance if we can't read grant scope
+                        print(f"Warning: Could not read grant scope for token: {e}")
+                    
+                    # Now call original with updated kwargs (including scope)
+                    print("Calling original JWTToken.__call__ with scope in kwargs")
+                    token = _orig_call(self, *args, **kwargs)
+                    
+                    # After minting, verify scope is in token
+                    if hasattr(token, 'value'):
+                        try:
+                            import base64
+                            import json
+                            parts = token.value.split(".")
+                            if len(parts) >= 2:
+                                # Decode payload
+                                payload_part = parts[1]
+                                padding = 4 - len(payload_part) % 4
+                                if padding != 4:
+                                    payload_part += "=" * padding
+                                decoded_payload = base64.urlsafe_b64decode(payload_part)
+                                payload = json.loads(decoded_payload)
+                                
+                                scope_in_token = payload.get("scope", "NOT FOUND")
+                                print(f"Scope in minted token: {scope_in_token}")
+                                
+                                if scope_in_token == "NOT FOUND" or (isinstance(scope_in_token, str) and scope_in_token == "openid" and scope_list and len(scope_list) > 1):
+                                    print("WARNING: Scope not properly added to token!")
+                                    print(f"Expected: {scope_list if scope_list else 'N/A'}")
+                                    print(f"Got: {scope_in_token}")
+                        except Exception as e:
+                            print(f"Warning: Could not decode token to verify scope: {e}")
+                    
+                    print("=" * 80)
+                    return token
+
+                JWTToken.__call__ = patched_jwt_call
+                print("Patched JWTToken.__call__ to debug scope in token minting")
+            except Exception as e:
+                print(f"Warning: Could not patch JWTToken.payload: {e}")
+                import traceback
+                traceback.print_exc()
+
             # Patch client_credentials helper to work around IdPyOIDC limitations.
             #
             # Why this exists (architectural note):

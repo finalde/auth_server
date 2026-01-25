@@ -10,7 +10,7 @@ IdPyOIDC Documentation:
 - Session management: https://idpy-oidc.readthedocs.io/en/latest/server/contents/session_management.html
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import json
 from fastapi import APIRouter, Request, Form
@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse, Response, HTMLResponse, RedirectResp
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 from apps.webapi.routes import AUTH_BASE
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
@@ -27,6 +29,9 @@ router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth"])
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
 # OIDC Discovery spec: https://openid.net/specs/openid-connect-discovery-1_0.html
 well_known_router: APIRouter = APIRouter(tags=["well-known"])
+
+_user_scopes_engine: Optional[Engine] = None
+
 
 # Templates for login page
 # Use absolute path from project root
@@ -43,6 +48,37 @@ def _get_oidc_server(request: Request) -> Any:
     if not hasattr(request.state, "oidc_server"):
         raise RuntimeError("OIDC server not initialized")
     return request.state.oidc_server
+
+
+def _get_user_scopes(username: str) -> Set[str]:
+    """Load active scopes for a given user from user_scopes table.
+
+    This constrains which scopes a user is allowed to receive in tokens.
+    """
+    from apps.webapi.dependencies import get_config
+
+    global _user_scopes_engine
+    if _user_scopes_engine is None:
+        db_url = get_config().get_database_url()
+        _user_scopes_engine = create_engine(db_url, pool_pre_ping=True)
+
+    scopes: Set[str] = set()
+    with _user_scopes_engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT us.scope_name
+                FROM user_scopes us
+                JOIN users u ON u.user_id = us.user_id
+                WHERE u.username = :username
+                  AND us.is_active = TRUE
+                """
+            ),
+            {"username": username},
+        )
+        for row in result:
+            scopes.add(row.scope_name)
+    return scopes
 
 
 def _get_base_url(request: Request) -> str:
@@ -337,6 +373,62 @@ async def authorization_endpoint(request: Request) -> Response:
         # If not provided, set default to avoid KeyError
         if "response_mode" not in request_data:
             request_data["response_mode"] = "query"
+
+        # Apply per-user scope filtering (user_scopes) BEFORE calling IdPyOIDC.
+        # Effective scopes = requested ∩ client_allowed ∩ user_allowed.
+        client_id = request_data.get("client_id")
+        requested_scope_str = request_data.get("scope", "") or ""
+        requested_scopes = requested_scope_str.split() if requested_scope_str else []
+
+        # Load user-allowed scopes (may be empty if not configured)
+        user_scopes = _get_user_scopes(user) if user else set()
+
+        # Load client-allowed scopes from CDB
+        client_allowed_scopes: list[str] = []
+        if client_id:
+            ctx = server.context
+            try:
+                client_info = ctx.cdb[client_id]
+                if isinstance(client_info, dict):
+                    client_allowed_scopes = client_info.get("scopes", []) or []
+                else:
+                    client_allowed_scopes = getattr(client_info, "scopes", []) or []
+            except KeyError:
+                client_allowed_scopes = []
+
+        # Always allow 'openid' (OIDC user identity) if requested and client allows it
+        always_allowed = {"openid"}
+        effective_scopes: list[str] = []
+        for s in requested_scopes:
+            if s in always_allowed:
+                if not client_allowed_scopes or s in client_allowed_scopes:
+                    effective_scopes.append(s)
+            else:
+                if client_allowed_scopes and s not in client_allowed_scopes:
+                    continue
+                if user_scopes and s not in user_scopes:
+                    continue
+                effective_scopes.append(s)
+
+        # If we computed a filtered scope list, update request_data
+        if effective_scopes:
+            request_data["scope"] = " ".join(effective_scopes)
+
+        # Debug logging to show end-to-end scope filtering before IdPyOIDC
+        # This helps verify that requested scopes and per-user scopes are correct,
+        # and that any missing scopes in the final access token are due to IdPyOIDC.
+        print(
+            "Authorization endpoint scope debug:",
+            {
+                "user": user,
+                "client_id": client_id,
+                "requested_scopes": requested_scopes,
+                "user_scopes": sorted(list(user_scopes)) if user_scopes else [],
+                "client_allowed_scopes": client_allowed_scopes,
+                "effective_scopes": effective_scopes,
+                "request_data.scope": request_data.get("scope"),
+            },
+        )
         
         http_info = _build_http_info(request)
         
@@ -353,14 +445,27 @@ async def authorization_endpoint(request: Request) -> Response:
         # This should be done here before calling IdPyOIDC, if needed
         
         # Parse request using IdPyOIDC endpoint
+        print("=" * 80)
+        print("🔍 About to call IdPyOIDC parse_request")
+        print(f"request_data.scope: {request_data.get('scope')}")
+        print(f"request_data keys: {list(request_data.keys())}")
+        
         parsed_request = endpoint.parse_request(request_data, http_info=http_info)
+        
+        print(f"parsed_request type: {type(parsed_request)}")
+        if isinstance(parsed_request, dict):
+            print(f"parsed_request.scope: {parsed_request.get('scope')}")
+        elif hasattr(parsed_request, 'scope'):
+            print(f"parsed_request.scope (attr): {getattr(parsed_request, 'scope', 'N/A')}")
         
         # Process and return response
         # IdPyOIDC process_request may return:
         # - dict: JSON response (error cases)
         # - Response object: HTTP response (redirects, HTML forms, etc.)
         # - Message object (like AuthorizationErrorResponse): Needs to be converted
+        print("About to call IdPyOIDC process_request (our patch should intercept)")
         resp = endpoint.process_request(parsed_request)
+        print(f"process_request returned type: {type(resp)}")
         
         # Handle different response types from IdPyOIDC
         # IMPORTANT: Check for Message objects FIRST (they may be dict-like)
@@ -663,27 +768,6 @@ async def token_endpoint(request: Request) -> JSONResponse:
                 content=parsed_request
             )
         
-        # Check if parsed_request is missing required fields (authentication might have failed)
-        # parsed_request might be a Message object, so check if it has client_id
-        if hasattr(parsed_request, 'get'):
-            if not parsed_request.get("client_id"):
-                return JSONResponse(
-                    status_code=401,
-                    content={
-                        "error": "invalid_client",
-                        "error_description": "Client authentication failed: missing or invalid client_id"
-                    }
-                )
-        elif isinstance(parsed_request, dict):
-            if not parsed_request.get("client_id"):
-                return JSONResponse(
-                    status_code=401,
-                    content={
-                        "error": "invalid_client",
-                        "error_description": "Client authentication failed: missing or invalid client_id"
-                    }
-                )
-        
         try:
             response = endpoint.process_request(parsed_request)
         except KeyError as key_error:
@@ -769,7 +853,55 @@ async def token_endpoint(request: Request) -> JSONResponse:
         # Ensure response_content is a dict
         if not isinstance(response_content, dict):
             response_content = {"response": str(response_content)}
+
+        # Debug: log token response content and scope for diagnostics
+        print(
+            "Token endpoint response debug:",
+            {
+                "keys": list(response_content.keys()),
+                "scope": response_content.get("scope"),
+                "error": response_content.get("error"),
+                "error_description": response_content.get("error_description"),
+            },
+        )
         
+        # Decode and print the actual scope in the access token JWT
+        if "access_token" in response_content and not response_content.get("error"):
+            try:
+                import base64
+                import json
+                access_token = response_content.get("access_token")
+                if access_token:
+                    # Decode JWT payload (second part)
+                    parts = access_token.split(".")
+                    if len(parts) >= 2:
+                        payload_part = parts[1]
+                        # Add padding if needed
+                        padding = 4 - len(payload_part) % 4
+                        if padding != 4:
+                            payload_part += "=" * padding
+                        decoded_payload = base64.urlsafe_b64decode(payload_part)
+                        token_payload = json.loads(decoded_payload)
+                        
+                        # Print the scope that's actually in the token
+                        scope_in_token = token_payload.get("scope", "NOT FOUND")
+                        scope_list = scope_in_token.split() if isinstance(scope_in_token, str) else scope_in_token
+                        
+                        print("=" * 80)
+                        print("🔐 FINAL TOKEN SCOPE - What scope is actually granted in the access token:")
+                        print("=" * 80)
+                        print(f"Scope in token: {scope_in_token}")
+                        print(f"Scope list: {scope_list}")
+                        print(f"Has 'openid': {'openid' in scope_list}")
+                        print(f"Has 'data.read': {'data.read' in scope_list}")
+                        print(f"Has 'data.write': {'data.write' in scope_list}")
+                        print(f"Has 'read': {'read' in scope_list}")
+                        print(f"Has 'write': {'write' in scope_list}")
+                        print(f"Has 'admin': {'admin' in scope_list}")
+                        print("=" * 80)
+            except Exception as e:
+                print(f"Warning: Could not decode access token to check scope: {e}")
+
         # Check if response contains an error
         if "error" in response_content:
             print(f"Process request returned error: {response_content}")
@@ -785,7 +917,15 @@ async def token_endpoint(request: Request) -> JSONResponse:
                 status_code=status_code,
                 content=response_content
             )
-        
+
+        # If no error and no scope is present, log an explicit warning – likely an IdPyOIDC issue
+        if "scope" not in response_content:
+            print(
+                "WARNING: Token issued without 'scope' claim in response_content. "
+                "Requested scopes were handled in authorization endpoint; "
+                "missing scope here indicates IdPyOIDC did not add scope to the access token."
+            )
+
         return JSONResponse(content=response_content)
     except Exception as e:
         import traceback

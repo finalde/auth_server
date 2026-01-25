@@ -7,6 +7,61 @@ const RESOURCE_SERVER_URL = 'http://localhost:8001';
 const CLIENT_ID = 'spa_client';
 const REDIRECT_URI = 'http://localhost:3000/callback';
 
+// Decode JWT token to see its contents (for debugging)
+function decodeJWT(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { error: 'Invalid JWT format' };
+    }
+    
+    // Decode payload (second part)
+    const payload = parts[1];
+    // Add padding if needed for base64 decoding
+    const paddedPayload = payload + '='.repeat((4 - payload.length % 4) % 4);
+    const decoded = atob(paddedPayload);
+    return JSON.parse(decoded);
+  } catch (error) {
+    return { error: 'Failed to decode JWT', details: error };
+  }
+}
+
+// Print access token details to console
+function printAccessToken(token: string) {
+  const decoded = decodeJWT(token);
+  
+  console.log('='.repeat(80));
+  console.log('🔐 ACCESS TOKEN DECODED');
+  console.log('='.repeat(80));
+  console.log('Full Token Payload:', JSON.stringify(decoded, null, 2));
+  console.log('');
+  
+  // Highlight scope claim
+  if (decoded.scope) {
+    const scopeValue = decoded.scope;
+    const scopes = typeof scopeValue === 'string' ? scopeValue.split(' ') : scopeValue;
+    console.log('📋 SCOPES IN TOKEN:', scopes);
+    console.log('   - Has "openid":', scopes.includes('openid'));
+    console.log('   - Has "data.read":', scopes.includes('data.read'));
+    console.log('   - Has "data.write":', scopes.includes('data.write'));
+    console.log('   - Has "read":', scopes.includes('read'));
+    console.log('   - Has "write":', scopes.includes('write'));
+    console.log('   - Has "admin":', scopes.includes('admin'));
+  } else {
+    console.log('⚠️  WARNING: No "scope" claim found in token!');
+  }
+  
+  console.log('');
+  console.log('Other Claims:');
+  console.log('   - sub (subject):', decoded.sub);
+  console.log('   - client_id:', decoded.client_id);
+  console.log('   - aud (audience):', decoded.aud);
+  console.log('   - iss (issuer):', decoded.iss);
+  console.log('   - exp (expires at):', decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'N/A');
+  console.log('   - iat (issued at):', decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'N/A');
+  console.log('='.repeat(80));
+}
+
 // Generate PKCE code verifier and challenge
 function generateCodeVerifier(): string {
   const array = new Uint8Array(32);
@@ -47,6 +102,8 @@ function Home() {
     const accessToken = localStorage.getItem('access_token');
     if (accessToken) {
       setIsAuthenticated(true);
+      // Print token details to console for debugging
+      printAccessToken(accessToken);
       fetchUserInfo(accessToken);
     }
   }, []);
@@ -259,10 +316,21 @@ function Callback() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [exchanged, setExchanged] = useState(false);
+  const [isExchanging, setIsExchanging] = useState(false);
 
   useEffect(() => {
     // Prevent double execution (e.g. React StrictMode in dev)
-    if (exchanged) {
+    // Use both state flag and localStorage flag for extra safety
+    if (exchanged || isExchanging) {
+      return;
+    }
+    
+    // Check if we already have a token (code was already exchanged)
+    const existingToken = localStorage.getItem('access_token');
+    if (existingToken) {
+      console.log('Token already exists, redirecting to home');
+      setExchanged(true);
+      navigate('/');
       return;
     }
 
@@ -286,6 +354,9 @@ function Callback() {
       return;
     }
     
+    // Set exchanging flag immediately to prevent double execution
+    setIsExchanging(true);
+    
     const exchangeToken = async () => {
       try {
         const params = new URLSearchParams({
@@ -305,14 +376,29 @@ function Callback() {
         );
         
         // Store tokens
-        localStorage.setItem('access_token', response.data.access_token);
+        const accessToken = response.data.access_token;
+        localStorage.setItem('access_token', accessToken);
         if (response.data.refresh_token) {
           localStorage.setItem('refresh_token', response.data.refresh_token);
         }
         localStorage.removeItem('code_verifier');
 
+        // Print token details to console for debugging
+        console.log('✅ Token exchange successful!');
+        printAccessToken(accessToken);
+        
+        // Also log the raw response for debugging
+        console.log('Token endpoint response:', {
+          has_access_token: !!response.data.access_token,
+          has_refresh_token: !!response.data.refresh_token,
+          scope_in_response: response.data.scope,
+          token_type: response.data.token_type,
+          expires_in: response.data.expires_in
+        });
+
         // Mark as exchanged to avoid duplicate calls (e.g. StrictMode)
         setExchanged(true);
+        setIsExchanging(false);
         
         // Redirect to home
         navigate('/');
@@ -320,11 +406,12 @@ function Callback() {
         // Log full error for debugging
         console.error('Token exchange error:', err?.response?.data || err);
         setError(`Token exchange failed: ${err.response?.data?.error || err.message}`);
+        setIsExchanging(false);
       }
     };
     
     exchangeToken();
-  }, [searchParams, navigate, exchanged]);
+  }, [searchParams, navigate, exchanged, isExchanging]);
 
   if (error) {
     return (

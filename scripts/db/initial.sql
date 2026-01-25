@@ -4,6 +4,8 @@
 -- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS oauth2_clients CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS user_scopes CASCADE;
+DROP TABLE IF EXISTS user_claims CASCADE;
 DROP TABLE IF EXISTS resources CASCADE;
 DROP TABLE IF EXISTS scopes CASCADE;
 
@@ -30,6 +32,48 @@ CREATE TABLE users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create user_claims table for structured user-level claims
+-- OAuth2/OIDC Best Practice:
+-- - Scopes = what the client/app is allowed to do (permissions)
+-- - Claims = who the user IS (roles, tenant, flags), used as constraints in policies
+-- This table stores user attributes that can be turned into token claims (via userinfo).
+CREATE TABLE IF NOT EXISTS user_claims (
+    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(36) NOT NULL,
+    claim_name VARCHAR(255) NOT NULL,
+    claim_value TEXT NOT NULL,
+    claim_type VARCHAR(50),  -- Optional: 'string', 'number', 'boolean', 'json'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    UNIQUE(user_id, claim_name)
+);
+
+-- Create indexes for user_claims table
+CREATE INDEX IF NOT EXISTS idx_user_claims_user_id ON user_claims(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_claims_claim_name ON user_claims(claim_name);
+
+-- Create user_scopes table for per-user scope grants
+-- This models user-level permissions:
+-- - Scopes still remain the permission signal in the token
+-- - user_scopes constrains WHICH scopes a given user is allowed to receive
+CREATE TABLE IF NOT EXISTS user_scopes (
+    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(36) NOT NULL,
+    scope_name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (scope_name) REFERENCES scopes(scope_name) ON DELETE RESTRICT,
+    UNIQUE(user_id, scope_name)
+);
+
+-- Create indexes for user_scopes table
+CREATE INDEX IF NOT EXISTS idx_user_scopes_user_id ON user_scopes(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_scopes_scope_name ON user_scopes(scope_name);
 
 -- Create indexes for users table
 CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
@@ -167,6 +211,18 @@ ON CONFLICT (scope_name) DO NOTHING;
 INSERT INTO users (id, user_id, username, email, password_hash, status, first_name, last_name, is_active) VALUES
     ('550e8400-e29b-41d4-a716-446655440000', 'user-001', 'testuser', 'testuser@example.com', '$2b$12$bhq3uu2qOAeWWihj3bDrNOKy9fC6xnFbB0xP7Ct/Y5y4bAQy2npHC', 'active', 'Test', 'User', TRUE)
 ON CONFLICT (id) DO NOTHING;
+
+-- Insert sample user claims for testuser
+-- Example: role = 'reader' (can be used by resource server policies)
+INSERT INTO user_claims (user_id, claim_name, claim_value, claim_type, is_active) VALUES
+    ('user-001', 'role', 'reader', 'string', TRUE)
+ON CONFLICT (user_id, claim_name) DO NOTHING;
+
+-- Insert sample per-user scopes for testuser
+-- testuser is allowed data.read but NOT data.write
+INSERT INTO user_scopes (user_id, scope_name, is_active) VALUES
+    ('user-001', 'data.read', TRUE)
+ON CONFLICT (user_id, scope_name) DO NOTHING;
 
 -- Insert test OAuth2 client for client credentials flow
 -- Client ID: test_client
