@@ -14,7 +14,7 @@ The auth_server solution follows Domain-Driven Design (DDD), Command Query Respo
 auth_server/
 ├── apps/
 │   ├── webapi/          # Web API application (Python, IdPyOIDC)
-│   └── webui/           # Web UI application (React Redux)
+│   └── auth_ui/         # Admin UI application (React SPA for managing clients, users, resources)
 └── libs/
     ├── common/          # Shared utilities and interfaces
     ├── domain/          # Domain layer (business logic)
@@ -73,14 +73,19 @@ Python-based Web API implementing OpenID Connect Provider using IdPyOIDC:
 - **DI Container** - WebAPI DI container configuration
 - **Configuration** - Application configuration
 
-### WebUI (`apps/webui/`)
+### AuthUI (`apps/auth_ui/`)
 
-React Redux Web UI:
-- **Components** - React components
-- **Store** - Redux store configuration
-- **Actions** - Redux actions
-- **Reducers** - Redux reducers
-- **Services** - API client services
+React SPA Admin UI for managing the auth server:
+- **Components** - React components for CRUD operations
+- **Store** - State management (Redux or similar)
+- **Services** - API client services for WebAPI endpoints
+- **Features**:
+  - Manage OAuth2 clients (create, update, delete, view)
+  - Manage users (create, update, delete, view)
+  - Manage resources (create, update, delete, view)
+  - Manage scopes (create, update, delete, view)
+  - Grant user access to resources/scopes
+  - Admin operations and permissions management
 
 ## Key Principles
 
@@ -126,7 +131,7 @@ React Redux Web UI:
    - ✅ Can depend on: `common/` (interfaces, enums, constants)
    - ❌ Cannot depend on: `domain/`, `application/`, `apps/`
 
-4. **Applications (WebAPI/WebUI)**:
+4. **Applications (WebAPI/AuthUI)**:
    - ✅ Can depend on: `application/` (DTOs, queries, commands), `common/`
    - ❌ Cannot depend on: `domain/`, `infrastructure/` (directly)
 
@@ -136,7 +141,7 @@ React Redux Web UI:
 
 ### 5. DTO Flow (CRITICAL)
 
-**Application boundaries (WebAPI/WebUI) MUST ONLY work with DTOs:**
+**Application boundaries (WebAPI/AuthUI) MUST ONLY work with DTOs:**
 - Data flow: DAO → Domain (via mapper, optional) → DTO (via mapper) → Controller
 - Controllers receive DTOs from query/command services
 - DTOs are used directly as response models
@@ -342,7 +347,7 @@ container.provides(IClientQuery)(
    - Commands receive writers and mappers via DI
    - Example: `ClientQuery(reader: IClientReader, mapper: ClientMapper)`
 
-4. **Application Boundaries (WebAPI/WebUI)**:
+4. **Application Boundaries (WebAPI/AuthUI)**:
    - Controllers receive queries/commands via FastAPI `Depends()`
    - FastAPI dependencies resolve from DI container
    - Example: `async def get_clients(query: IClientQuery = Depends(get_client_query))`

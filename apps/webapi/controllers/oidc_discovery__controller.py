@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from apps.webapi.dependencies import get_oidc_discovery_query_service
 from libs.application.services.oidc_discovery__query_service import (
-    IOIDCDiscoveryQueryService,
+    OIDCDiscoveryQueryService,
 )
 
 # Well-known endpoints router (no prefix - must be at root level per OAuth2/OIDC spec)
@@ -16,7 +16,7 @@ router: APIRouter = APIRouter(tags=["oidc-discovery"])
 @router.get("/.well-known/openid-configuration")
 async def openid_configuration(
     request: Request,
-    discovery_service: IOIDCDiscoveryQueryService = Depends(
+    discovery_service: OIDCDiscoveryQueryService = Depends(
         get_oidc_discovery_query_service
     ),
 ) -> JSONResponse:
@@ -43,7 +43,7 @@ async def openid_configuration(
 @router.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server(
     request: Request,
-    discovery_service: IOIDCDiscoveryQueryService = Depends(
+    discovery_service: OIDCDiscoveryQueryService = Depends(
         get_oidc_discovery_query_service
     ),
 ) -> JSONResponse:

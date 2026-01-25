@@ -3,17 +3,18 @@
 from typing import Optional
 
 from fastapi import Depends
+from libs.application.commands.command_dispatcher import CommandDispatcher
 from libs.application.services.oidc__orchestration_service import (
-    IOIDCOrchestrationService,
+    OIDCOrchestrationService,
 )
 from libs.application.services.oidc_authorization__orchestration_service import (
-    IOIDCAuthorizationOrchestrationService,
+    OIDCAuthorizationOrchestrationService,
 )
 from libs.application.services.oidc_discovery__query_service import (
-    IOIDCDiscoveryQueryService,
+    OIDCDiscoveryQueryService,
 )
 from libs.application.services.oidc_token__orchestration_service import (
-    IOIDCTokenOrchestrationService,
+    OIDCTokenOrchestrationService,
 )
 from libs.common.interfaces import IAppConfig, ILogger
 
@@ -39,28 +40,35 @@ def get_logger() -> ILogger:
 
 
 # OIDC Service dependencies
-def get_oidc_orchestration_service() -> IOIDCOrchestrationService:
+def get_oidc_orchestration_service() -> OIDCOrchestrationService:
     """Get OIDC orchestration service from DI container."""
     container = get_container()
     return container.oidc_orchestration_service()
 
 
-def get_oidc_discovery_query_service() -> IOIDCDiscoveryQueryService:
+def get_oidc_discovery_query_service() -> OIDCDiscoveryQueryService:
     """Get OIDC discovery query service from DI container."""
     container = get_container()
     return container.oidc_discovery_query_service()
 
 
-def get_oidc_authorization_orchestration_service() -> IOIDCAuthorizationOrchestrationService:
+def get_oidc_authorization_orchestration_service() -> OIDCAuthorizationOrchestrationService:
     """Get OIDC authorization orchestration service from DI container."""
     container = get_container()
     return container.oidc_authorization_orchestration_service()
 
 
-def get_oidc_token_orchestration_service() -> IOIDCTokenOrchestrationService:
+def get_oidc_token_orchestration_service() -> OIDCTokenOrchestrationService:
     """Get OIDC token orchestration service from DI container."""
     container = get_container()
     return container.oidc_token_orchestration_service()
+
+
+def get_command_dispatcher() -> CommandDispatcher:
+    """Get command dispatcher from DI container."""
+    container = get_container()
+    logger = container.logger_interface()
+    return CommandDispatcher(logger=logger)
 
 
 # Query dependencies (will be added as we implement readers/writers)

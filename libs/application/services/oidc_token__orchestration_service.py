@@ -5,15 +5,7 @@ from typing import Any, Dict
 from libs.common.interfaces import ILogger
 
 
-class IOIDCTokenOrchestrationService:
-    """Interface for OAuth2 token orchestration service."""
-
-    def process_token_request(self, request: Any) -> Dict[str, Any]:
-        """Process OAuth2 token request."""
-        pass
-
-
-class OIDCTokenOrchestrationService(IOIDCTokenOrchestrationService):
+class OIDCTokenOrchestrationService:
     """Application service for OAuth2 token endpoint orchestration."""
 
     def __init__(
@@ -23,17 +15,17 @@ class OIDCTokenOrchestrationService(IOIDCTokenOrchestrationService):
     ) -> None:
         """Initialize OAuth2 token orchestration service."""
         self._logger: ILogger = logger
-        self._oidc_service: Any = oidc_orchestration_service
+        self.oidc_service: Any = oidc_orchestration_service
 
     async def process_token_request(self, request: Any) -> Dict[str, Any]:
         """Process OAuth2 token request."""
-        server = self._oidc_service.get_oidc_server(request)
+        server = self.oidc_service.get_oidc_server(request)
         endpoint = server.endpoint["token"]
 
         # Prepare request data
         form_data = await request.form()
         request_data = dict(form_data) if form_data else {}
-        http_info = self._oidc_service.build_http_info(request)
+        http_info = self.oidc_service.build_http_info(request)
 
         # Debug logging
         client_id = request_data.get("client_id")

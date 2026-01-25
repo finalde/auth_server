@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from apps.webapi.dependencies import get_oidc_orchestration_service
 from apps.webapi.routes import AUTH_BASE
 from libs.application.services.oidc__orchestration_service import (
-    IOIDCOrchestrationService,
+    OIDCOrchestrationService,
 )
 
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-userinfo"])
@@ -16,7 +16,7 @@ router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-userinfo"])
 @router.post("/userinfo")
 async def userinfo_endpoint(
     request: Request,
-    oidc_service: IOIDCOrchestrationService = Depends(get_oidc_orchestration_service),
+    oidc_service: OIDCOrchestrationService = Depends(get_oidc_orchestration_service),
 ) -> JSONResponse:
     """UserInfo endpoint for OpenID Connect user information.
     

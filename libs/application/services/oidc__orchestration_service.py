@@ -5,23 +5,7 @@ from typing import Any, Dict, Optional
 from libs.common.interfaces import ILogger
 
 
-class IOIDCOrchestrationService:
-    """Interface for OIDC orchestration service."""
-
-    def get_oidc_server(self, request: Any) -> Any:
-        """Get OIDC server from request state."""
-        pass
-
-    def build_http_info(self, request: Any) -> Dict[str, Any]:
-        """Build http_info dict for IdPyOIDC."""
-        pass
-
-    def get_base_url(self, request: Any) -> str:
-        """Get base URL from request, normalizing 0.0.0.0 to localhost."""
-        pass
-
-
-class OIDCOrchestrationService(IOIDCOrchestrationService):
+class OIDCOrchestrationService:
     """Application service for OIDC orchestration."""
 
     def __init__(self, logger: ILogger) -> None:

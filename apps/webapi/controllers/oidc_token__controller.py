@@ -4,14 +4,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from fastapi import Depends
+from apps.webapi.dependencies import get_oidc_token_orchestration_service
 from apps.webapi.routes import AUTH_BASE
 from libs.application.services.oidc_response__converter import (
     OIDCResponseConverter,
 )
 from libs.application.services.oidc_token__orchestration_service import (
-    IOIDCTokenOrchestrationService,
+    OIDCTokenOrchestrationService,
 )
-from apps.webapi.dependencies import get_oidc_token_orchestration_service
 
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-token"])
 
@@ -19,7 +19,7 @@ router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-token"])
 @router.post("/token")
 async def token_endpoint(
     request: Request,
-    token_service: IOIDCTokenOrchestrationService = Depends(
+    token_service: OIDCTokenOrchestrationService = Depends(
         get_oidc_token_orchestration_service
     ),
 ) -> JSONResponse:

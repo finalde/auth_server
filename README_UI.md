@@ -44,9 +44,9 @@ This would be a **React admin UI** for managing the auth server:
 - OAuth2 flow testing
 - Server monitoring
 
-**Status**: Not yet implemented. The `apps/webui` directory exists but is empty.
+**Status**: Not yet implemented. The `apps/auth_ui` directory exists but is empty.
 
-See `apps/webui/README.md` for planned features.
+See `apps/auth_ui/README.md` for planned features.
 
 ## Quick Reference
 
@@ -77,4 +77,4 @@ http://localhost:8000/api/v1/auth/login
 
 **Management UI** ❌
 - Not yet implemented
-- Placeholder exists at `apps/webui/`
+- Placeholder exists at `apps/auth_ui/`

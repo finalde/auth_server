@@ -23,24 +23,19 @@ from libs.common.interfaces import (
 
 from apps.webapi.app_config import WebAPIConfig
 from libs.application.services.oidc__orchestration_service import (
-    IOIDCOrchestrationService,
     OIDCOrchestrationService,
 )
 from libs.application.services.oidc_authorization__orchestration_service import (
-    IOIDCAuthorizationOrchestrationService,
     OIDCAuthorizationOrchestrationService,
 )
 from libs.application.services.oidc_discovery__query_service import (
-    IOIDCDiscoveryQueryService,
     OIDCDiscoveryQueryService,
 )
 from libs.application.services.oidc_response__converter import OIDCResponseConverter
 from libs.application.services.oidc_token__orchestration_service import (
-    IOIDCTokenOrchestrationService,
     OIDCTokenOrchestrationService,
 )
 from libs.application.services.user_scope__query_service import (
-    IUserScopeQueryService,
     UserScopeQueryService,
 )
 from libs.common.logger import Logger

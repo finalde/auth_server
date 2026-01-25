@@ -60,16 +60,16 @@ logs/
 htmlcov/
 .tox/
 
-# Node modules (for WebUI)
+# Node modules (for AuthUI)
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # React build
-apps/webui/build/
-apps/webui/.pnp
-apps/webui/.pnp.js
+apps/auth_ui/build/
+apps/auth_ui/.pnp
+apps/auth_ui/.pnp.js
 
 # Type checking
 .mypy_cache/

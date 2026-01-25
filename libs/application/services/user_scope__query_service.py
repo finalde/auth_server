@@ -5,15 +5,7 @@ from typing import Any, Set
 from libs.common.interfaces import ILogger
 
 
-class IUserScopeQueryService:
-    """Interface for user scope query service."""
-
-    def get_user_scopes(self, username: str) -> Set[str]:
-        """Get active scopes for a user."""
-        pass
-
-
-class UserScopeQueryService(IUserScopeQueryService):
+class UserScopeQueryService:
     """Application service for querying user scopes."""
 
     def __init__(self, logger: ILogger, database_url: str) -> None:

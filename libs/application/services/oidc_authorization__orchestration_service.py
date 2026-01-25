@@ -6,17 +6,7 @@ from libs.common.interfaces import ILogger
 from libs.domain.domain_services.scope__domain_service import ScopeDomainService
 
 
-class IOIDCAuthorizationOrchestrationService:
-    """Interface for OAuth2 authorization orchestration service."""
-
-    def process_authorization_request(
-        self, request: Any, user: Optional[str]
-    ) -> Dict[str, Any]:
-        """Process OAuth2 authorization request."""
-        pass
-
-
-class OIDCAuthorizationOrchestrationService(IOIDCAuthorizationOrchestrationService):
+class OIDCAuthorizationOrchestrationService:
     """Application service for OAuth2 authorization endpoint orchestration."""
 
     def __init__(

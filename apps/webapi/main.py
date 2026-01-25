@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from apps.webapi.controllers import (
+    clients__controller,
     oidc_authorization__controller,
     oidc_discovery__controller,
     oidc_jwks__controller,
@@ -22,6 +23,9 @@ from apps.webapi.controllers import (
     oidc_registration__controller,
     oidc_token__controller,
     oidc_userinfo__controller,
+    resources__controller,
+    scopes__controller,
+    users__controller,
 )
 from apps.webapi.dependencies import get_config
 from apps.webapi.di_container import get_container
@@ -59,6 +63,11 @@ app.include_router(oidc_token__controller.router)
 app.include_router(oidc_userinfo__controller.router)
 app.include_router(oidc_jwks__controller.router)
 app.include_router(oidc_registration__controller.router)
+# Management endpoints
+app.include_router(clients__controller.router)
+app.include_router(users__controller.router)
+app.include_router(resources__controller.router)
+app.include_router(scopes__controller.router)
 
 # Mount static files (if needed)
 # app.mount("/static", StaticFiles(directory="apps/webapi/static"), name="static")

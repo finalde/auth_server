@@ -6,14 +6,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 
 from fastapi import Depends
+from apps.webapi.dependencies import get_oidc_authorization_orchestration_service
 from apps.webapi.routes import AUTH_BASE
 from libs.application.services.oidc_authorization__orchestration_service import (
-    IOIDCAuthorizationOrchestrationService,
+    OIDCAuthorizationOrchestrationService,
 )
 from libs.application.services.oidc_response__converter import (
     OIDCResponseConverter,
 )
-from apps.webapi.dependencies import get_oidc_authorization_orchestration_service
 
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-authorization"])
 
@@ -21,7 +21,7 @@ router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["oidc-authorization"])
 @router.get("/authorization")
 async def authorization_endpoint(
     request: Request,
-    authorization_service: IOIDCAuthorizationOrchestrationService = Depends(
+    authorization_service: OIDCAuthorizationOrchestrationService = Depends(
         get_oidc_authorization_orchestration_service
     ),
 ) -> Response:

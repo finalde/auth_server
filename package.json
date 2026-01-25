@@ -1,7 +1,7 @@
 {
-  "name": "auth-server-webui",
+  "name": "auth-server-auth-ui",
   "version": "1.0.0",
-  "description": "Auth Server Web UI",
+  "description": "Auth Server Admin UI",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",

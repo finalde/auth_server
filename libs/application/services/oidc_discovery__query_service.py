@@ -5,19 +5,7 @@ from typing import Any, Dict
 from libs.common.interfaces import ILogger
 
 
-class IOIDCDiscoveryQueryService:
-    """Interface for OIDC discovery query service."""
-
-    def get_openid_configuration(self, request: Any) -> Dict[str, Any]:
-        """Get OpenID Connect configuration document."""
-        pass
-
-    def get_oauth_authorization_server_metadata(self, request: Any) -> Dict[str, Any]:
-        """Get OAuth2 Authorization Server Metadata (RFC 8414)."""
-        pass
-
-
-class OIDCDiscoveryQueryService(IOIDCDiscoveryQueryService):
+class OIDCDiscoveryQueryService:
     """Application service for OIDC discovery endpoint orchestration."""
 
     def __init__(
@@ -27,7 +15,7 @@ class OIDCDiscoveryQueryService(IOIDCDiscoveryQueryService):
     ) -> None:
         """Initialize OIDC discovery query service."""
         self._logger: ILogger = logger
-        self._oidc_service: Any = oidc_orchestration_service
+        self.oidc_service: Any = oidc_orchestration_service
 
     def _normalize_provider_info(
         self, provider_info: Dict[str, Any], base_url: str
@@ -56,9 +44,9 @@ class OIDCDiscoveryQueryService(IOIDCDiscoveryQueryService):
 
     def get_openid_configuration(self, request: Any) -> Dict[str, Any]:
         """Get OpenID Connect configuration document."""
-        server = self._oidc_service.get_oidc_server(request)
+        server = self.oidc_service.get_oidc_server(request)
         endpoint_context = server.context
-        base_url = self._oidc_service.get_base_url(request)
+        base_url = self.oidc_service.get_base_url(request)
 
         # Get provider info from endpoint context
         provider_info: Dict[str, Any] = endpoint_context.provider_info.copy()
@@ -67,9 +55,9 @@ class OIDCDiscoveryQueryService(IOIDCDiscoveryQueryService):
 
     def get_oauth_authorization_server_metadata(self, request: Any) -> Dict[str, Any]:
         """Get OAuth2 Authorization Server Metadata (RFC 8414)."""
-        server = self._oidc_service.get_oidc_server(request)
+        server = self.oidc_service.get_oidc_server(request)
         endpoint_context = server.context
-        base_url = self._oidc_service.get_base_url(request)
+        base_url = self.oidc_service.get_base_url(request)
 
         # Get provider info from endpoint context
         provider_info: Dict[str, Any] = endpoint_context.provider_info.copy()

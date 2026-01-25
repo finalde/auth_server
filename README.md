@@ -14,7 +14,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 auth_server/
 ├── apps/
 │   ├── webapi/          # Web API application (Python, FastAPI, IdPyOIDC)
-│   └── webui/           # Web UI application (React Redux)
+│   └── auth_ui/         # Admin UI application (React SPA for managing clients, users, resources)
 └── libs/
     ├── common/          # Shared utilities and interfaces
     ├── domain/          # Domain layer (business logic)
@@ -74,11 +74,11 @@ http://localhost:8000/api/v1/auth/login
 
 When clients redirect users to the authorization endpoint without authentication, they are automatically redirected to this login page. See `apps/webapi/README_LOGIN.md` for more details.
 
-### WebUI (React)
+### AuthUI (React SPA - Admin Management)
 
 1. Install dependencies:
 ```bash
-cd apps/webui
+cd apps/auth_ui
 npm install
 ```
 
@@ -86,6 +86,13 @@ npm install
 ```bash
 npm start
 ```
+
+The AuthUI provides admin functionality for managing:
+- OAuth2 clients (create, update, delete, view)
+- Users (create, update, delete, view)
+- Resources (create, update, delete, view)
+- Scopes (create, update, delete, view)
+- User access permissions (grant/revoke access to resources/scopes)
 
 ## Development
 

@@ -8,11 +8,11 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from fastapi import Depends
+from apps.webapi.dependencies import get_oidc_orchestration_service
 from apps.webapi.routes import AUTH_BASE
 from libs.application.services.oidc__orchestration_service import (
-    IOIDCOrchestrationService,
+    OIDCOrchestrationService,
 )
-from apps.webapi.dependencies import get_oidc_orchestration_service
 
 router: APIRouter = APIRouter(prefix=AUTH_BASE, tags=["auth-login"])
 
@@ -66,7 +66,7 @@ async def login_submit(
     response_type: Optional[str] = Form("code"),
     code_challenge: Optional[str] = Form(None),
     code_challenge_method: Optional[str] = Form(None),
-    oidc_service: IOIDCOrchestrationService = Depends(get_oidc_orchestration_service),
+    oidc_service: OIDCOrchestrationService = Depends(get_oidc_orchestration_service),
 ) -> RedirectResponse:
     """Handle login form submission."""
     # TODO: Authenticate user against database

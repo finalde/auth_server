@@ -16,15 +16,22 @@ from libs.application.dtos.client__dto import (
     CreateClientDTO,
     UpdateClientDTO,
 )
-from libs.application.queries.client_query import IClientQuery
+from libs.application.queries.client_query import ClientQuery, IClientQuery
+from apps.webapi.dependencies import get_command_dispatcher
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/clients", tags=["clients"])
 
 
+def get_client_query() -> IClientQuery:
+    """Get client query - TODO: Inject via DI container."""
+    # TODO: Get from DI container once readers/writers are implemented
+    return ClientQuery(None, None)  # type: ignore
+
+
 @router.get("/", response_model=List[ClientDTO])
 async def get_all_clients_async(
-    query: IClientQuery = Depends(),
+    query: IClientQuery = Depends(get_client_query),
 ) -> List[ClientDTO]:
     """Get all clients."""
     return await query.get_all_async()
@@ -33,7 +40,7 @@ async def get_all_clients_async(
 @router.get("/{client_id}", response_model=ClientDTO)
 async def get_client_by_id_async(
     client_id: str,
-    query: IClientQuery = Depends(),
+    query: IClientQuery = Depends(get_client_query),
 ) -> ClientDTO:
     """Get client by ID."""
     client: ClientDTO | None = await query.get_by_id_async(client_id)
@@ -48,7 +55,7 @@ async def get_client_by_id_async(
 @router.post("/", response_model=ClientDTO, status_code=status.HTTP_201_CREATED)
 async def create_client_async(
     create_dto: CreateClientDTO,
-    dispatcher: CommandDispatcher = Depends(),
+    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> ClientDTO:
     """Create a new client."""
     command: CreateClientCommand = CreateClientCommand(
@@ -70,7 +77,7 @@ async def create_client_async(
 async def update_client_async(
     client_id: str,
     update_dto: UpdateClientDTO,
-    dispatcher: CommandDispatcher = Depends(),
+    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> ClientDTO:
     """Update client."""
     command: UpdateClientCommand = UpdateClientCommand(
@@ -93,7 +100,7 @@ async def update_client_async(
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client_async(
     client_id: str,
-    dispatcher: CommandDispatcher = Depends(),
+    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> None:
     """Delete client."""
     command: DeleteClientCommand = DeleteClientCommand(client_id=client_id)
