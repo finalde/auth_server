@@ -15,7 +15,8 @@ from libs.application.dtos.resource__dto import (
     CreateResourceDTO,
     UpdateResourceDTO,
 )
-from apps.webapi.dependencies import get_command_dispatcher
+from libs.application.queries.resource_query import IResourceQuery
+from apps.webapi.dependencies import get_command_dispatcher, get_resource_query
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/resources", tags=["resources"])
@@ -23,24 +24,25 @@ router: APIRouter = APIRouter(prefix=f"{API_BASE}/resources", tags=["resources"]
 
 @router.get("/", response_model=List[ResourceDTO])
 async def get_all_resources_async(
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IResourceQuery = Depends(get_resource_query),
 ) -> List[ResourceDTO]:
     """Get all resources."""
-    # TODO: Implement resource query
-    return []
+    return await query.get_all_async()
 
 
 @router.get("/{resource_id}", response_model=ResourceDTO)
 async def get_resource_by_id_async(
     resource_id: str,
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IResourceQuery = Depends(get_resource_query),
 ) -> ResourceDTO:
     """Get resource by ID."""
-    # TODO: Implement resource query
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Resource with ID {resource_id} not found",
-    )
+    resource: ResourceDTO | None = await query.get_by_id_async(resource_id)
+    if not resource:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Resource with ID {resource_id} not found",
+        )
+    return resource
 
 
 @router.post("/", response_model=ResourceDTO, status_code=status.HTTP_201_CREATED)

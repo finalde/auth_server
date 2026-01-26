@@ -10,6 +10,9 @@ class ScopeDAO(BaseDAO):
 
     __tablename__ = "scopes"
 
-    scope_name: Column = Column(String(100), unique=True, nullable=False, primary_key=True)
-    description: Column = Column(Text)
-    is_active: Column = Column(Boolean, default=True, nullable=False)
+    # scopes table uses scope_name as primary key; disable BaseDAO.id mapping
+    id = None
+
+    scope_name = Column(String(100), unique=True, nullable=False, primary_key=True)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True, nullable=False)

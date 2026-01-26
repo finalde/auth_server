@@ -17,6 +17,9 @@ idpyoidc>=1.0.0
 # Template engine for login page
 jinja2>=3.1.0
 
+# Password hashing
+bcrypt>=5.0.0
+
 # Authlib for test clients (if needed in main app)
 authlib>=1.2.0
 

@@ -1,6 +1,25 @@
 import axios from 'axios';
-import type { Client, CreateClient, UpdateClient, User, CreateUser, UpdateUser, Resource, CreateResource, UpdateResource, Scope, CreateScope } from '../types';
+import type {
+  Client,
+  CreateClient,
+  UpdateClient,
+  User,
+  CreateUser,
+  UpdateUser,
+  Resource,
+  CreateResource,
+  UpdateResource,
+  Scope,
+  CreateScope,
+  UserClaim,
+  CreateUserClaim,
+  UpdateUserClaim,
+  UserScope,
+  CreateUserScope,
+  UpdateUserScope,
+} from '../types';
 
+// Auth Server WebAPI is the resource for AuthUI
 const API_BASE = 'http://localhost:8000/api/v1';
 
 const api = axios.create({
@@ -121,5 +140,51 @@ export const scopesApi = {
   },
   delete: async (scopeName: string): Promise<void> => {
     await api.delete(`/scopes/${scopeName}`);
+  },
+};
+
+// User Claims API
+export const userClaimsApi = {
+  getAll: async (): Promise<UserClaim[]> => {
+    const response = await api.get<UserClaim[]>('/user-claims');
+    return response.data;
+  },
+  create: async (data: CreateUserClaim): Promise<UserClaim> => {
+    const response = await api.post<UserClaim>('/user-claims', data);
+    return response.data;
+  },
+  update: async (
+    userId: string,
+    claimName: string,
+    data: UpdateUserClaim
+  ): Promise<UserClaim> => {
+    const response = await api.put<UserClaim>(`/user-claims/${userId}/${claimName}`, data);
+    return response.data;
+  },
+  delete: async (userId: string, claimName: string): Promise<void> => {
+    await api.delete(`/user-claims/${userId}/${claimName}`);
+  },
+};
+
+// User Scopes API
+export const userScopesApi = {
+  getAll: async (): Promise<UserScope[]> => {
+    const response = await api.get<UserScope[]>('/user-scopes');
+    return response.data;
+  },
+  create: async (data: CreateUserScope): Promise<UserScope> => {
+    const response = await api.post<UserScope>('/user-scopes', data);
+    return response.data;
+  },
+  update: async (
+    userId: string,
+    scopeName: string,
+    data: UpdateUserScope
+  ): Promise<UserScope> => {
+    const response = await api.put<UserScope>(`/user-scopes/${userId}/${scopeName}`, data);
+    return response.data;
+  },
+  delete: async (userId: string, scopeName: string): Promise<void> => {
+    await api.delete(`/user-scopes/${userId}/${scopeName}`);
   },
 };

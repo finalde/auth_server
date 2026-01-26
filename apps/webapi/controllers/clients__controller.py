@@ -16,17 +16,11 @@ from libs.application.dtos.client__dto import (
     CreateClientDTO,
     UpdateClientDTO,
 )
-from libs.application.queries.client_query import ClientQuery, IClientQuery
-from apps.webapi.dependencies import get_command_dispatcher
+from libs.application.queries.client_query import IClientQuery
+from apps.webapi.dependencies import get_client_query, get_command_dispatcher
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/clients", tags=["clients"])
-
-
-def get_client_query() -> IClientQuery:
-    """Get client query - TODO: Inject via DI container."""
-    # TODO: Get from DI container once readers/writers are implemented
-    return ClientQuery(None, None)  # type: ignore
 
 
 @router.get("/", response_model=List[ClientDTO])

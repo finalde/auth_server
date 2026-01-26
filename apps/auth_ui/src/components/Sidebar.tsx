@@ -30,6 +30,16 @@ export default function Sidebar() {
             Scopes
           </NavLink>
         </li>
+        <li>
+          <NavLink to="/user-claims" className={({ isActive }) => isActive ? 'active' : ''}>
+            User Claims
+          </NavLink>
+        </li>
+        <li>
+          <NavLink to="/user-scopes" className={({ isActive }) => isActive ? 'active' : ''}>
+            User Scopes
+          </NavLink>
+        </li>
       </ul>
     </nav>
   );

@@ -18,6 +18,17 @@ CREATE TABLE scopes (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Seed default scopes for Auth UI and OIDC
+INSERT INTO scopes (scope_name, description, is_active)
+VALUES
+    ('openid', 'OpenID Connect base scope', TRUE),
+    ('admin', 'Administrative access', TRUE),
+    ('manage.clients', 'Manage OAuth2 clients', TRUE),
+    ('manage.users', 'Manage users', TRUE),
+    ('manage.resources', 'Manage protected resources', TRUE),
+    ('manage.scopes', 'Manage scopes', TRUE)
+ON CONFLICT (scope_name) DO NOTHING;
+
 -- Create users table
 CREATE TABLE users (
     id VARCHAR(36) PRIMARY KEY,
@@ -203,13 +214,18 @@ INSERT INTO scopes (scope_name, description, is_active) VALUES
     ('data.write', 'Write access to data API (resource-oriented scope)', TRUE),
     ('read', 'Legacy read scope (deprecated, use data.read)', TRUE),  -- Keep for backward compatibility
     ('write', 'Legacy write scope (deprecated, use data.write)', TRUE),  -- Keep for backward compatibility
-    ('admin', 'Administrative access to resources', TRUE)
+    ('admin', 'Administrative access to resources', TRUE),
+    ('manage.clients', 'Manage OAuth2 clients (admin scope)', TRUE),
+    ('manage.users', 'Manage users (admin scope)', TRUE),
+    ('manage.resources', 'Manage resources (admin scope)', TRUE),
+    ('manage.scopes', 'Manage scopes (admin scope)', TRUE)
 ON CONFLICT (scope_name) DO NOTHING;
 
 -- Insert test user (password: password123)
 -- Password hash generated with bcrypt: $2b$12$bhq3uu2qOAeWWihj3bDrNOKy9fC6xnFbB0xP7Ct/Y5y4bAQy2npHC
 INSERT INTO users (id, user_id, username, email, password_hash, status, first_name, last_name, is_active) VALUES
-    ('550e8400-e29b-41d4-a716-446655440000', 'user-001', 'testuser', 'testuser@example.com', '$2b$12$bhq3uu2qOAeWWihj3bDrNOKy9fC6xnFbB0xP7Ct/Y5y4bAQy2npHC', 'active', 'Test', 'User', TRUE)
+    ('550e8400-e29b-41d4-a716-446655440000', 'user-001', 'testuser', 'testuser@example.com', '$2b$12$bhq3uu2qOAeWWihj3bDrNOKy9fC6xnFbB0xP7Ct/Y5y4bAQy2npHC', 'active', 'Test', 'User', TRUE),
+    ('660e8400-e29b-41d4-a716-446655440001', 'user-002', 'admin', 'admin@example.com', '$2b$12$bhq3uu2qOAeWWihj3bDrNOKy9fC6xnFbB0xP7Ct/Y5y4bAQy2npHC', 'active', 'Admin', 'User', TRUE)
 ON CONFLICT (id) DO NOTHING;
 
 -- Insert sample user claims for testuser
@@ -222,6 +238,17 @@ ON CONFLICT (user_id, claim_name) DO NOTHING;
 -- testuser is allowed data.read but NOT data.write
 INSERT INTO user_scopes (user_id, scope_name, is_active) VALUES
     ('user-001', 'data.read', TRUE)
+ON CONFLICT (user_id, scope_name) DO NOTHING;
+
+-- Insert admin user scopes
+-- admin user has all management scopes
+INSERT INTO user_scopes (user_id, scope_name, is_active) VALUES
+    ('user-002', 'openid', TRUE),
+    ('user-002', 'manage.clients', TRUE),
+    ('user-002', 'manage.users', TRUE),
+    ('user-002', 'manage.resources', TRUE),
+    ('user-002', 'manage.scopes', TRUE),
+    ('user-002', 'admin', TRUE)
 ON CONFLICT (user_id, scope_name) DO NOTHING;
 
 -- Insert test OAuth2 client for client credentials flow
@@ -278,6 +305,17 @@ INSERT INTO oauth2_clients (
     ARRAY['code'],
     ARRAY['openid', 'data.read', 'data.write', 'read', 'write', 'admin'],  -- Include both resource-oriented and legacy scopes
     TRUE
+),
+(
+    '990e8400-e29b-41d4-a716-446655440000',
+    'auth_ui',
+    '',  -- Public client, no secret required
+    'Auth Server Admin UI',
+    ARRAY['http://localhost:3001/callback'],
+    ARRAY['authorization_code', 'refresh_token'],
+    ARRAY['code'],
+    ARRAY['openid', 'manage.clients', 'manage.users', 'manage.resources', 'manage.scopes', 'admin'],
+    TRUE
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -298,6 +336,15 @@ INSERT INTO resources (
     'http://localhost:8001',
     ARRAY['read', 'write'],
     'Test resource server for OAuth2/OIDC testing',
+    TRUE
+),
+(
+    '880e8400-e29b-41d4-a716-446655440001',
+    'resource-002',
+    'Auth Server WebAPI',
+    'http://localhost:8000',
+    ARRAY['manage.clients', 'manage.users', 'manage.resources', 'manage.scopes', 'admin'],
+    'Auth server WebAPI for managing clients, users, resources, and scopes',
     TRUE
 )
 ON CONFLICT (id) DO NOTHING;

@@ -13,7 +13,8 @@ from libs.application.dtos.scope__dto import (
     ScopeDTO,
     CreateScopeDTO,
 )
-from apps.webapi.dependencies import get_command_dispatcher
+from libs.application.queries.scope_query import IScopeQuery
+from apps.webapi.dependencies import get_command_dispatcher, get_scope_query
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/scopes", tags=["scopes"])
@@ -21,24 +22,25 @@ router: APIRouter = APIRouter(prefix=f"{API_BASE}/scopes", tags=["scopes"])
 
 @router.get("/", response_model=List[ScopeDTO])
 async def get_all_scopes_async(
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IScopeQuery = Depends(get_scope_query),
 ) -> List[ScopeDTO]:
     """Get all scopes."""
-    # TODO: Implement scope query
-    return []
+    return await query.get_all_async()
 
 
 @router.get("/{scope_name}", response_model=ScopeDTO)
 async def get_scope_by_name_async(
     scope_name: str,
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IScopeQuery = Depends(get_scope_query),
 ) -> ScopeDTO:
     """Get scope by name."""
-    # TODO: Implement scope query
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Scope {scope_name} not found",
-    )
+    scope: ScopeDTO | None = await query.get_by_name_async(scope_name)
+    if not scope:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scope {scope_name} not found",
+        )
+    return scope
 
 
 @router.post("/", response_model=ScopeDTO, status_code=status.HTTP_201_CREATED)

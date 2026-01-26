@@ -11,11 +11,11 @@ class UserDAO(BaseDAO):
 
     __tablename__ = "users"
 
-    user_id: Column = Column(String(36), unique=True, nullable=False, index=True)
-    username: Column = Column(String(100), unique=True, nullable=False, index=True)
-    email: Column = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash: Column = Column(String(255), nullable=False)
-    status: Column = Column(String(20), default=UserStatusEnum.ACTIVE.value, nullable=False)
-    first_name: Column = Column(String(100))
-    last_name: Column = Column(String(100))
-    is_active: Column = Column(Boolean, default=True, nullable=False)
+    user_id = Column(String(36), unique=True, nullable=False, index=True)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    status = Column(String(20), default=UserStatusEnum.ACTIVE.value, nullable=False)
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    is_active = Column(Boolean, default=True, nullable=False)

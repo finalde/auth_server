@@ -15,7 +15,8 @@ from libs.application.dtos.user__dto import (
     CreateUserDTO,
     UpdateUserDTO,
 )
-from apps.webapi.dependencies import get_command_dispatcher
+from libs.application.queries.user_query import IUserQuery
+from apps.webapi.dependencies import get_command_dispatcher, get_user_query
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/users", tags=["users"])
@@ -23,24 +24,25 @@ router: APIRouter = APIRouter(prefix=f"{API_BASE}/users", tags=["users"])
 
 @router.get("/", response_model=List[UserDTO])
 async def get_all_users_async(
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IUserQuery = Depends(get_user_query),
 ) -> List[UserDTO]:
     """Get all users."""
-    # TODO: Implement user query
-    return []
+    return await query.get_all_async()
 
 
 @router.get("/{user_id}", response_model=UserDTO)
 async def get_user_by_id_async(
     user_id: str,
-    dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
+    query: IUserQuery = Depends(get_user_query),
 ) -> UserDTO:
     """Get user by ID."""
-    # TODO: Implement user query
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"User with ID {user_id} not found",
-    )
+    user: UserDTO | None = await query.get_by_id_async(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found",
+        )
+    return user
 
 
 @router.post("/", response_model=UserDTO, status_code=status.HTTP_201_CREATED)

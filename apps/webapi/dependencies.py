@@ -4,6 +4,10 @@ from typing import Optional
 
 from fastapi import Depends
 from libs.application.commands.command_dispatcher import CommandDispatcher
+from libs.application.queries.client_query import IClientQuery
+from libs.application.queries.resource_query import IResourceQuery
+from libs.application.queries.scope_query import IScopeQuery
+from libs.application.queries.user_query import IUserQuery
 from libs.application.services.oidc__orchestration_service import (
     OIDCOrchestrationService,
 )
@@ -16,6 +20,9 @@ from libs.application.services.oidc_discovery__query_service import (
 from libs.application.services.oidc_token__orchestration_service import (
     OIDCTokenOrchestrationService,
 )
+from libs.application.services.user_auth__service import UserAuthService
+from libs.application.services.user_claim__service import UserClaimService
+from libs.application.services.user_scope__service import UserScopeService
 from libs.common.interfaces import IAppConfig, ILogger
 
 from apps.webapi.di_container import get_container
@@ -64,6 +71,24 @@ def get_oidc_token_orchestration_service() -> OIDCTokenOrchestrationService:
     return container.oidc_token_orchestration_service()
 
 
+def get_user_auth_service() -> UserAuthService:
+    """Get user auth service from DI container."""
+    container = get_container()
+    return container.user_auth_service()
+
+
+def get_user_claim_service() -> UserClaimService:
+    """Get user claim service from DI container."""
+    container = get_container()
+    return container.user_claim_service()
+
+
+def get_user_scope_service() -> UserScopeService:
+    """Get user scope service from DI container."""
+    container = get_container()
+    return container.user_scope_service()
+
+
 def get_command_dispatcher() -> CommandDispatcher:
     """Get command dispatcher from DI container."""
     container = get_container()
@@ -71,8 +96,26 @@ def get_command_dispatcher() -> CommandDispatcher:
     return CommandDispatcher(logger=logger)
 
 
-# Query dependencies (will be added as we implement readers/writers)
-# def get_client_query() -> IClientQuery:
-#     """Get client query from DI container."""
-#     container = get_container()
-#     return container.client_query()
+# Query dependencies
+def get_client_query() -> IClientQuery:
+    """Get client query from DI container."""
+    container = get_container()
+    return container.client_query()
+
+
+def get_user_query() -> IUserQuery:
+    """Get user query from DI container."""
+    container = get_container()
+    return container.user_query()
+
+
+def get_resource_query() -> IResourceQuery:
+    """Get resource query from DI container."""
+    container = get_container()
+    return container.resource_query()
+
+
+def get_scope_query() -> IScopeQuery:
+    """Get scope query from DI container."""
+    container = get_container()
+    return container.scope_query()

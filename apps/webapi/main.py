@@ -25,6 +25,8 @@ from apps.webapi.controllers import (
     oidc_userinfo__controller,
     resources__controller,
     scopes__controller,
+    user_claims__controller,
+    user_scopes__controller,
     users__controller,
 )
 from apps.webapi.dependencies import get_config
@@ -68,6 +70,8 @@ app.include_router(clients__controller.router)
 app.include_router(users__controller.router)
 app.include_router(resources__controller.router)
 app.include_router(scopes__controller.router)
+app.include_router(user_claims__controller.router)
+app.include_router(user_scopes__controller.router)
 
 # Mount static files (if needed)
 # app.mount("/static", StaticFiles(directory="apps/webapi/static"), name="static")

@@ -16,6 +16,8 @@ CLIENTS_BASE: Final[str] = f"{API_BASE}/clients"
 USERS_BASE: Final[str] = f"{API_BASE}/users"
 RESOURCES_BASE: Final[str] = f"{API_BASE}/resources"
 SCOPES_BASE: Final[str] = f"{API_BASE}/scopes"
+USER_CLAIMS_BASE: Final[str] = f"{API_BASE}/user-claims"
+USER_SCOPES_BASE: Final[str] = f"{API_BASE}/user-scopes"
 
 # Create router
 router: APIRouter = APIRouter()

@@ -10,9 +10,9 @@ class UserClaimDAO(BaseDAO):
 
     __tablename__ = "user_claims"
 
-    user_id: Column = Column(String(36), nullable=False, index=True)
-    claim_name: Column = Column(String(255), nullable=False, index=True)
-    claim_value: Column = Column(Text, nullable=False)
-    claim_type: Column = Column(String(50), nullable=True)
-    is_active: Column = Column(Boolean, default=True, nullable=False)
+    user_id = Column(String(36), nullable=False, index=True)
+    claim_name = Column(String(255), nullable=False, index=True)
+    claim_value = Column(Text, nullable=False)
+    claim_type = Column(String(50), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
 

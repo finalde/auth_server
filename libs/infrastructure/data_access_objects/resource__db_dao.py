@@ -11,9 +11,9 @@ class ResourceDAO(BaseDAO):
 
     __tablename__ = "resources"
 
-    resource_id: Column = Column(String(36), unique=True, nullable=False, index=True)
-    resource_name: Column = Column(String(255), nullable=False)
-    resource_uri: Column = Column(String(512), nullable=False, index=True)
-    scopes: Column = Column(ARRAY(String))
-    description: Column = Column(Text)
-    is_active: Column = Column(Boolean, default=True, nullable=False)
+    resource_id = Column(String(36), unique=True, nullable=False, index=True)
+    resource_name = Column(String(255), nullable=False)
+    resource_uri = Column(String(512), nullable=False, index=True)
+    scopes = Column(ARRAY(String))
+    description = Column(Text)
+    is_active = Column(Boolean, default=True, nullable=False)

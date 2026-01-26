@@ -98,3 +98,39 @@ export interface CreateScope {
   scope_name: string;
   description?: string;
 }
+
+export interface UserClaim {
+  user_id: string;
+  claim_name: string;
+  claim_value: string;
+  claim_type?: string;
+  is_active: boolean;
+}
+
+export interface CreateUserClaim {
+  user_id: string;
+  claim_name: string;
+  claim_value: string;
+  claim_type?: string;
+}
+
+export interface UpdateUserClaim {
+  claim_value?: string;
+  claim_type?: string;
+  is_active?: boolean;
+}
+
+export interface UserScope {
+  user_id: string;
+  scope_name: string;
+  is_active: boolean;
+}
+
+export interface CreateUserScope {
+  user_id: string;
+  scope_name: string;
+}
+
+export interface UpdateUserScope {
+  is_active?: boolean;
+}
