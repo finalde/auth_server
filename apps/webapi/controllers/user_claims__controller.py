@@ -2,9 +2,11 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from libs.infrastructure.authorization import Authorize
 from apps.webapi.dependencies import get_user_claim_service
+from apps.webapi.policies import AdminScopePolicy
 from apps.webapi.routes import USER_CLAIMS_BASE
 from libs.application.dtos.user_claim__dto import (
     CreateUserClaimDTO,
@@ -17,7 +19,9 @@ router: APIRouter = APIRouter(prefix=USER_CLAIMS_BASE, tags=["user-claims"])
 
 
 @router.get("/", response_model=List[UserClaimDTO])
+@Authorize(policy=AdminScopePolicy())
 async def get_all_user_claims_async(
+    request: Request,
     service: UserClaimService = Depends(get_user_claim_service),
 ) -> List[UserClaimDTO]:
     """Get all user claims."""
@@ -25,7 +29,9 @@ async def get_all_user_claims_async(
 
 
 @router.post("/", response_model=UserClaimDTO, status_code=status.HTTP_201_CREATED)
+@Authorize(policy=AdminScopePolicy())
 async def create_user_claim_async(
+    request: Request,
     create_dto: CreateUserClaimDTO,
     service: UserClaimService = Depends(get_user_claim_service),
 ) -> UserClaimDTO:
@@ -34,7 +40,9 @@ async def create_user_claim_async(
 
 
 @router.put("/{user_id}/{claim_name}", response_model=UserClaimDTO)
+@Authorize(policy=AdminScopePolicy())
 async def update_user_claim_async(
+    request: Request,
     user_id: str,
     claim_name: str,
     update_dto: UpdateUserClaimDTO,
@@ -51,7 +59,9 @@ async def update_user_claim_async(
 
 
 @router.delete("/{user_id}/{claim_name}", status_code=status.HTTP_204_NO_CONTENT)
+@Authorize(policy=AdminScopePolicy())
 async def delete_user_claim_async(
+    request: Request,
     user_id: str,
     claim_name: str,
     service: UserClaimService = Depends(get_user_claim_service),

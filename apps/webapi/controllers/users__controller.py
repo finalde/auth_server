@@ -2,7 +2,7 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from libs.application.commands.command_dispatcher import CommandDispatcher
 from libs.application.commands.command_objects import (
@@ -16,14 +16,18 @@ from libs.application.dtos.user__dto import (
     UpdateUserDTO,
 )
 from libs.application.queries.user_query import IUserQuery
+from libs.infrastructure.authorization import Authorize
 from apps.webapi.dependencies import get_command_dispatcher, get_user_query
+from apps.webapi.policies import AdminScopePolicy
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/users", tags=["users"])
 
 
 @router.get("/", response_model=List[UserDTO])
+@Authorize(policy=AdminScopePolicy())
 async def get_all_users_async(
+    request: Request,
     query: IUserQuery = Depends(get_user_query),
 ) -> List[UserDTO]:
     """Get all users."""
@@ -31,7 +35,9 @@ async def get_all_users_async(
 
 
 @router.get("/{user_id}", response_model=UserDTO)
+@Authorize(policy=AdminScopePolicy())
 async def get_user_by_id_async(
+    request: Request,
     user_id: str,
     query: IUserQuery = Depends(get_user_query),
 ) -> UserDTO:
@@ -46,7 +52,9 @@ async def get_user_by_id_async(
 
 
 @router.post("/", response_model=UserDTO, status_code=status.HTTP_201_CREATED)
+@Authorize(policy=AdminScopePolicy())
 async def create_user_async(
+    request: Request,
     create_dto: CreateUserDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> UserDTO:
@@ -66,7 +74,9 @@ async def create_user_async(
 
 
 @router.put("/{user_id}", response_model=UserDTO)
+@Authorize(policy=AdminScopePolicy())
 async def update_user_async(
+    request: Request,
     user_id: str,
     update_dto: UpdateUserDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
@@ -89,7 +99,9 @@ async def update_user_async(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@Authorize(policy=AdminScopePolicy())
 async def delete_user_async(
+    request: Request,
     user_id: str,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> None:

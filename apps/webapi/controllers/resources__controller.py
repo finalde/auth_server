@@ -2,7 +2,7 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from libs.application.commands.command_dispatcher import CommandDispatcher
 from libs.application.commands.command_objects import (
@@ -16,14 +16,18 @@ from libs.application.dtos.resource__dto import (
     UpdateResourceDTO,
 )
 from libs.application.queries.resource_query import IResourceQuery
+from libs.infrastructure.authorization import Authorize
 from apps.webapi.dependencies import get_command_dispatcher, get_resource_query
+from apps.webapi.policies import AdminScopePolicy
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/resources", tags=["resources"])
 
 
 @router.get("/", response_model=List[ResourceDTO])
+@Authorize(policy=AdminScopePolicy())
 async def get_all_resources_async(
+    request: Request,
     query: IResourceQuery = Depends(get_resource_query),
 ) -> List[ResourceDTO]:
     """Get all resources."""
@@ -31,7 +35,9 @@ async def get_all_resources_async(
 
 
 @router.get("/{resource_id}", response_model=ResourceDTO)
+@Authorize(policy=AdminScopePolicy())
 async def get_resource_by_id_async(
+    request: Request,
     resource_id: str,
     query: IResourceQuery = Depends(get_resource_query),
 ) -> ResourceDTO:
@@ -46,7 +52,9 @@ async def get_resource_by_id_async(
 
 
 @router.post("/", response_model=ResourceDTO, status_code=status.HTTP_201_CREATED)
+@Authorize(policy=AdminScopePolicy())
 async def create_resource_async(
+    request: Request,
     create_dto: CreateResourceDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> ResourceDTO:
@@ -62,7 +70,9 @@ async def create_resource_async(
 
 
 @router.put("/{resource_id}", response_model=ResourceDTO)
+@Authorize(policy=AdminScopePolicy())
 async def update_resource_async(
+    request: Request,
     resource_id: str,
     update_dto: UpdateResourceDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
@@ -81,7 +91,9 @@ async def update_resource_async(
 
 
 @router.delete("/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
+@Authorize(policy=AdminScopePolicy())
 async def delete_resource_async(
+    request: Request,
     resource_id: str,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> None:

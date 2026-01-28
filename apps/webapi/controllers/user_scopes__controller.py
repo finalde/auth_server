@@ -2,9 +2,11 @@
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from libs.infrastructure.authorization import Authorize
 from apps.webapi.dependencies import get_user_scope_service
+from apps.webapi.policies import AdminScopePolicy
 from apps.webapi.routes import USER_SCOPES_BASE
 from libs.application.dtos.user_scope__dto import (
     CreateUserScopeDTO,
@@ -17,7 +19,9 @@ router: APIRouter = APIRouter(prefix=USER_SCOPES_BASE, tags=["user-scopes"])
 
 
 @router.get("/", response_model=List[UserScopeDTO])
+@Authorize(policy=AdminScopePolicy())
 async def get_all_user_scopes_async(
+    request: Request,
     service: UserScopeService = Depends(get_user_scope_service),
 ) -> List[UserScopeDTO]:
     """Get all user scopes."""
@@ -25,7 +29,9 @@ async def get_all_user_scopes_async(
 
 
 @router.post("/", response_model=UserScopeDTO, status_code=status.HTTP_201_CREATED)
+@Authorize(policy=AdminScopePolicy())
 async def create_user_scope_async(
+    request: Request,
     create_dto: CreateUserScopeDTO,
     service: UserScopeService = Depends(get_user_scope_service),
 ) -> UserScopeDTO:
@@ -34,7 +40,9 @@ async def create_user_scope_async(
 
 
 @router.put("/{user_id}/{scope_name}", response_model=UserScopeDTO)
+@Authorize(policy=AdminScopePolicy())
 async def update_user_scope_async(
+    request: Request,
     user_id: str,
     scope_name: str,
     update_dto: UpdateUserScopeDTO,
@@ -51,7 +59,9 @@ async def update_user_scope_async(
 
 
 @router.delete("/{user_id}/{scope_name}", status_code=status.HTTP_204_NO_CONTENT)
+@Authorize(policy=AdminScopePolicy())
 async def delete_user_scope_async(
+    request: Request,
     user_id: str,
     scope_name: str,
     service: UserScopeService = Depends(get_user_scope_service),

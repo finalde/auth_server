@@ -1,4 +1,5 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
+import * as toastr from 'toastr';
 import type {
   Client,
   CreateClient,
@@ -19,6 +20,25 @@ import type {
   UpdateUserScope,
 } from '../types';
 
+// Configure toastr
+toastr.options = {
+  closeButton: true,
+  debug: false,
+  newestOnTop: true,
+  progressBar: true,
+  positionClass: 'toast-top-right',
+  preventDuplicates: true,
+  onclick: null,
+  showDuration: '300',
+  hideDuration: '1000',
+  timeOut: '5000',
+  extendedTimeOut: '1000',
+  showEasing: 'swing',
+  hideEasing: 'linear',
+  showMethod: 'fadeIn',
+  hideMethod: 'fadeOut',
+};
+
 // Auth Server WebAPI is the resource for AuthUI
 const API_BASE = 'http://localhost:8000/api/v1';
 
@@ -38,15 +58,58 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Helper function to extract error message from API response
+function getErrorMessage(error: AxiosError): string {
+  if (error.response?.data) {
+    const data = error.response.data as any;
+    if (data.detail) {
+      return data.detail;
+    }
+    if (data.message) {
+      return data.message;
+    }
+    if (typeof data === 'string') {
+      return data;
+    }
+  }
+  
+  // Default messages based on status code
+  if (error.response?.status === 403) {
+    return "You don't have permission to perform this action. Admin access required.";
+  }
+  if (error.response?.status === 401) {
+    return 'Authentication required. Please log in.';
+  }
+  if (error.response?.status === 404) {
+    return 'Resource not found.';
+  }
+  if (error.response?.status === 500) {
+    return 'Server error. Please try again later.';
+  }
+  
+  return error.message || 'An error occurred. Please try again.';
+}
+
 // Handle errors
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
+  (error: AxiosError) => {
+    const status = error.response?.status;
+    const message = getErrorMessage(error);
+    
+    if (status === 401) {
       // Unauthorized - clear token and redirect to login
+      toastr.error('Session expired. Please log in again.', 'Authentication Required');
       localStorage.removeItem('access_token');
       window.location.href = '/login';
+    } else if (status === 403) {
+      // Forbidden - show permission error
+      toastr.error(message, 'Permission Denied');
+    } else {
+      // Other errors - show error message
+      toastr.error(message, 'Error');
     }
+    
     return Promise.reject(error);
   }
 );

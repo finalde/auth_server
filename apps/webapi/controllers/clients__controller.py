@@ -3,7 +3,7 @@
 from typing import List
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from libs.application.commands.command_dispatcher import CommandDispatcher
 from libs.application.commands.command_objects import (
@@ -17,14 +17,18 @@ from libs.application.dtos.client__dto import (
     UpdateClientDTO,
 )
 from libs.application.queries.client_query import IClientQuery
+from libs.infrastructure.authorization import Authorize
 from apps.webapi.dependencies import get_client_query, get_command_dispatcher
+from apps.webapi.policies import AdminScopePolicy
 from apps.webapi.routes import API_BASE
 
 router: APIRouter = APIRouter(prefix=f"{API_BASE}/clients", tags=["clients"])
 
 
 @router.get("/", response_model=List[ClientDTO])
+@Authorize(policy=AdminScopePolicy())
 async def get_all_clients_async(
+    request: Request,
     query: IClientQuery = Depends(get_client_query),
 ) -> List[ClientDTO]:
     """Get all clients."""
@@ -32,7 +36,9 @@ async def get_all_clients_async(
 
 
 @router.get("/{client_id}", response_model=ClientDTO)
+@Authorize(policy=AdminScopePolicy())
 async def get_client_by_id_async(
+    request: Request,
     client_id: str,
     query: IClientQuery = Depends(get_client_query),
 ) -> ClientDTO:
@@ -47,7 +53,9 @@ async def get_client_by_id_async(
 
 
 @router.post("/", response_model=ClientDTO, status_code=status.HTTP_201_CREATED)
+@Authorize(policy=AdminScopePolicy())
 async def create_client_async(
+    request: Request,
     create_dto: CreateClientDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> ClientDTO:
@@ -68,7 +76,9 @@ async def create_client_async(
 
 
 @router.put("/{client_id}", response_model=ClientDTO)
+@Authorize(policy=AdminScopePolicy())
 async def update_client_async(
+    request: Request,
     client_id: str,
     update_dto: UpdateClientDTO,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
@@ -92,7 +102,9 @@ async def update_client_async(
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+@Authorize(policy=AdminScopePolicy())
 async def delete_client_async(
+    request: Request,
     client_id: str,
     dispatcher: CommandDispatcher = Depends(get_command_dispatcher),
 ) -> None:

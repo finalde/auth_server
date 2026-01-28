@@ -32,6 +32,7 @@ from apps.webapi.controllers import (
 from apps.webapi.dependencies import get_config
 from apps.webapi.di_container import get_container
 from apps.webapi.routes import HEALTH, router
+from libs.infrastructure.authorization import configure_authorization
 from libs.infrastructure.services.oidc_client_database import create_oidc_cdb
 from libs.infrastructure.services.oidc_server_service import OIDCServerService
 
@@ -141,6 +142,9 @@ async def startup_event() -> None:
     oidc_service = OIDCServerService(issuer=base_url)
     oidc_service.configure({}, cdb=cdb)
     app.state.oidc_server_service = oidc_service
+    
+    # Configure authorization for policy-based access control
+    configure_authorization(auth_server_url=base_url)
 
 
 app.add_middleware(OIDCMiddleware)
